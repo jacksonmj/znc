@@ -513,6 +513,7 @@ void CClient::UserCommand(CString& sLine) {
 		CTable Table;
 		Table.AddColumn("Name");
 		Table.AddColumn("Status");
+		Table.AddColumn("Order");
 
 		unsigned int uNumDetached = 0, uNumDisabled = 0,
 			uNumJoined = 0;
@@ -521,6 +522,7 @@ void CClient::UserCommand(CString& sLine) {
 			Table.AddRow();
 			Table.SetCell("Name", pChan->GetPermStr() + pChan->GetName());
 			Table.SetCell("Status", ((pChan->IsOn()) ? ((pChan->IsDetached()) ? "Detached" : "Joined") : ((pChan->IsDisabled()) ? "Disabled" : "Trying")));
+			Table.SetCell("Order", CString(pChan->GetSortOrder()));
 
 			if(pChan->IsDetached()) uNumDetached++;
 			if(pChan->IsOn()) uNumJoined++;
@@ -1385,6 +1387,36 @@ void CClient::UserCommand(CString& sLine) {
 			PutStatus("Setting BufferCount failed for [" + CString(uFail) + "] buffers, "
 					"max buffer count is " + CString(CZNC::Get().GetMaxBufferSize()));
 		}
+	} else if (sCommand.Equals("SETSORTORDER")) {
+		if (!m_pNetwork) {
+			PutStatus("You must be connected with a network to use this command");
+			return;
+		}
+
+		CString sChan = sLine.Token(1);
+
+		if (sChan.empty()) {
+			PutStatus("Usage: SetSortOrder <#chan> [number]");
+			return;
+		}
+
+		unsigned int uSortOrder = sLine.Token(2).ToUInt();
+		if (uSortOrder == 0)
+			uSortOrder = CChan::m_uDefaultSortOrder;
+
+		const vector<CChan*>& vChans = m_pNetwork->GetChans();
+		vector<CChan*>::const_iterator it;
+		unsigned int uMatches = 0;
+		for (it = vChans.begin(); it != vChans.end(); ++it) {
+			if ((*it)->GetName().WildCmp(sChan)) {
+				uMatches++;
+				(*it)->SetSortOrder(uSortOrder);
+			}
+		}
+		m_pNetwork->SortChans();
+
+		PutStatus("SortOrder for [" + CString(uMatches) +
+				"] channels was set to [" + CString(uSortOrder) + "]");
 	} else if (m_pUser->IsAdmin() && sCommand.Equals("TRAFFIC")) {
 		CZNC::TrafficStatsPair Users, ZNC, Total;
 		CZNC::TrafficStatsMap traffic = CZNC::Get().GetTrafficStats(Users, ZNC, Total);
@@ -1586,6 +1618,7 @@ void CClient::HelpUser(const CString& sFilter) {
 	AddCommandHelp(Table, "Attach", "<#chans>", "Attach to channels", sFilter);
 	AddCommandHelp(Table, "Detach", "<#chans>", "Detach from channels", sFilter);
 	AddCommandHelp(Table, "Topics", "", "Show topics in all your channels", sFilter);
+	AddCommandHelp(Table, "SetSortOrder", "<#chan> [number]", "Set the channel's sort order number", sFilter);
 
 	AddCommandHelp(Table, "PlayBuffer", "<#chan|query>", "Play back the specified buffer", sFilter);
 	AddCommandHelp(Table, "ClearBuffer", "<#chan|query>", "Clear the specified buffer", sFilter);
