@@ -48,7 +48,7 @@ CTemplate* CTemplateLoopContext::GetRow(unsigned int uIndex) {
 		}
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 CString CTemplateLoopContext::GetValue(const CString& sName, bool bFromIf) {
@@ -81,15 +81,15 @@ CString CTemplateLoopContext::GetValue(const CString& sName, bool bFromIf) {
 }
 
 CTemplate::~CTemplate() {
-	for (map<CString, vector<CTemplate*> >::iterator it = m_mvLoops.begin(); it != m_mvLoops.end(); ++it) {
-		vector<CTemplate*>& vLoop = it->second;
-		for (unsigned int a = 0; a < vLoop.size(); a++) {
-			delete vLoop[a];
+	for (const auto& it : m_mvLoops) {
+		const vector<CTemplate*>& vLoop = it.second;
+		for (CTemplate* pTemplate : vLoop) {
+			delete pTemplate;
 		}
 	}
 
-	for (unsigned int a = 0; a < m_vLoopContexts.size(); a++) {
-		delete m_vLoopContexts[a];
+	for (CTemplateLoopContext* pContext : m_vLoopContexts) {
+		delete pContext;
 	}
 }
 
@@ -104,32 +104,32 @@ void CTemplate::Init() {
 	*/
 
 	ClearPaths();
-	m_pParent = NULL;
+	m_pParent = nullptr;
 }
 
 CString CTemplate::ExpandFile(const CString& sFilename, bool bFromInc) {
-	/*if (sFilename.Left(1) == "/" || sFilename.Left(2) == "./") {
+	/*if (sFilename.StartsWith("/") || sFilename.StartsWith("./")) {
 		return sFilename;
 	}*/
 
 	CString sFile(ResolveLiteral(sFilename).TrimLeft_n("/"));
 
-	for (list<pair<CString, bool> >::iterator it = m_lsbPaths.begin(); it != m_lsbPaths.end(); ++it) {
-		CString& sRoot = it->first;
+	for (auto& it : m_lsbPaths) {
+		CString& sRoot = it.first;
 		CString sFilePath(CDir::ChangeDir(sRoot, sFile));
 
 		// Make sure path ends with a slash because "/foo/pub*" matches "/foo/public_keep_out/" but "/foo/pub/*" doesn't
-		if (!sRoot.empty() && sRoot.Right(1) != "/") {
+		if (!sRoot.empty() && !sRoot.EndsWith("/")) {
 			sRoot += "/";
 		}
 
-		if (it->second && !bFromInc) {
+		if (it.second && !bFromInc) {
 			DEBUG("\t\tSkipping path (not from INC)  [" + sFilePath + "]");
 			continue;
 		}
 
 		if (CFile::Exists(sFilePath)) {
-			if (sRoot.empty() || sFilePath.Left(sRoot.length()) == sRoot) {
+			if (sRoot.empty() || sFilePath.StartsWith(sRoot)) {
 				DEBUG("    Found  [" + sFilePath + "]");
 				return sFilePath;
 			} else {
@@ -156,15 +156,15 @@ void CTemplate::SetPath(const CString& sPaths) {
 	VCString vsDirs;
 	sPaths.Split(":", vsDirs, false);
 
-	for (size_t a = 0; a < vsDirs.size(); a++) {
-		AppendPath(vsDirs[a], false);
+	for (const CString& sDir : vsDirs) {
+		AppendPath(sDir, false);
 	}
 }
 
 CString CTemplate::MakePath(const CString& sPath) const {
 	CString sRet(CDir::ChangeDir("./", sPath + "/"));
 
-	if (!sRet.empty() && sRet.Right(1) != "/") {
+	if (!sRet.empty() && !sRet.EndsWith("/")) {
 		sRet += "/";
 	}
 
@@ -184,9 +184,9 @@ void CTemplate::AppendPath(const CString& sPath, bool bIncludesOnly) {
 void CTemplate::RemovePath(const CString& sPath) {
 	DEBUG("CTemplate::RemovePath(" + sPath + ") == [" + CDir::ChangeDir("./", sPath + "/") + "]");
 
-	for (list<pair<CString, bool> >::iterator it = m_lsbPaths.begin(); it != m_lsbPaths.end(); ++it) {
-		if (it->first == sPath) {
-			m_lsbPaths.remove(*it);
+	for (const auto& it : m_lsbPaths) {
+		if (it.first == sPath) {
+			m_lsbPaths.remove(it);
 			RemovePath(sPath); // @todo probably shouldn't use recursion, being lazy
 			return;
 		}
@@ -241,7 +241,7 @@ CTemplate* CTemplate::GetRow(const CString& sName, unsigned int uIndex) {
 		}
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 vector<CTemplate*>* CTemplate::GetLoop(const CString& sName) {
@@ -261,7 +261,7 @@ vector<CTemplate*>* CTemplate::GetLoop(const CString& sName) {
 		return &(it->second);
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 bool CTemplate::PrintString(CString& sRet) {
@@ -343,7 +343,7 @@ bool CTemplate::Print(const CString& sFileName, ostream& oOut) {
 			CString sMid = CString(sLine.substr(0, iPos2)).Trim_n();
 
 			// Make sure we don't have a nested tag
-			if (sMid.find("<?") == CString::npos) {
+			if (!sMid.Contains("<?")) {
 				sLine = sLine.substr(iPos2 +2);
 				CString sAction = sMid.Token(0);
 				CString sArgs = sMid.Token(1, true);
@@ -369,8 +369,8 @@ bool CTemplate::Print(const CString& sFileName, ostream& oOut) {
 						if (sArgs.Token(1, true, " ").OptionSplit(msRow)) {
 							CTemplate& NewRow = AddRow(sLoopName);
 
-							for (MCString::iterator it = msRow.begin(); it != msRow.end(); ++it) {
-								NewRow[it->first] = it->second;
+							for (const auto& it : msRow) {
+								NewRow[it.first] = it.second;
 							}
 						}
 					} else if (sAction.Equals("SET")) {
@@ -388,10 +388,8 @@ bool CTemplate::Print(const CString& sFileName, ostream& oOut) {
 							bool bFoundOne = false;
 							CString::EEscape eEscape = CString::EASCII;
 
-							for (unsigned int a = 1; a < vsArgs.size(); a++) {
-								const CString& sArg = vsArgs[a];
-
-								if (sArg.Equals("ESC=", false, 4)) {
+							for (const CString& sArg : vsArgs) {
+								if (sArg.StartsWith("ESC=")) {
 									eEscape = CString::ToEscape(sArg.LeftChomp_n(4));
 								} else {
 									CString sValue = GetValue(sArg);
@@ -453,15 +451,15 @@ bool CTemplate::Print(const CString& sFileName, ostream& oOut) {
 
 							CString sLoopName = sArgs.Token(0);
 							bool bReverse = (sArgs.Token(1).Equals("REVERSE"));
-							bool bSort = (sArgs.Token(1).Left(4).Equals("SORT"));
+							bool bSort = (sArgs.Token(1).StartsWith("SORT"));
 							vector<CTemplate*>* pvLoop = GetLoop(sLoopName);
 
-							if (bSort && pvLoop != NULL &&  pvLoop->size() > 1) {
+							if (bSort && pvLoop != nullptr &&  pvLoop->size() > 1) {
 								CString sKey;
 
-								if(sArgs.Token(1).TrimPrefix_n("SORT").Left(4).Equals("ASC=")) {
+								if(sArgs.Token(1).TrimPrefix_n("SORT").StartsWith("ASC=")) {
 									sKey = sArgs.Token(1).TrimPrefix_n("SORTASC=");
-								} else if(sArgs.Token(1).TrimPrefix_n("SORT").Left(5).Equals("DESC=")) {
+								} else if(sArgs.Token(1).TrimPrefix_n("SORT").StartsWith("DESC=")) {
 									sKey = sArgs.Token(1).TrimPrefix_n("SORTDESC=");
 									bReverse = true;
 								}
@@ -587,9 +585,7 @@ bool CTemplate::Print(const CString& sFileName, ostream& oOut) {
 						CTemplate* pTmpl = GetCurTemplate();
 						CString sCustomOutput;
 
-						for (unsigned int j = 0; j < vspTagHandlers.size(); j++) {
-							std::shared_ptr<CTemplateTagHandler> spTagHandler = vspTagHandlers[j];
-
+						for (const auto& spTagHandler : vspTagHandlers) {
 							if (spTagHandler->HandleTag(*pTmpl, sAction, sArgs, sCustomOutput)) {
 								sOutput += sCustomOutput;
 								bNotFound = false;
@@ -652,7 +648,7 @@ CTemplateLoopContext* CTemplate::GetCurLoopContext() {
 		return m_vLoopContexts.back();
 	}
 
-	return NULL;
+	return nullptr;
 }
 
 bool CTemplate::ValidIf(const CString& sArgs) {
@@ -699,31 +695,30 @@ bool CTemplate::ValidExpr(const CString& sExpression) {
 	CString sName;
 	CString sValue;
 
-	if (sExpr.Left(1) == "!") {
+	if (sExpr.TrimPrefix("!")) {
 		bNegate = true;
-		sExpr.LeftChomp();
 	}
 
-	if (sExpr.find("!=") != CString::npos) {
+	if (sExpr.Contains("!=")) {
 		sName = sExpr.Token(0, false, "!=").Trim_n();
 		sValue = sExpr.Token(1, true, "!=", false, "\"", "\"", true).Trim_n();
 		bNegate = !bNegate;
-	} else if (sExpr.find("==") != CString::npos) {
+	} else if (sExpr.Contains("==")) {
 		sName = sExpr.Token(0, false, "==").Trim_n();
 		sValue = sExpr.Token(1, true, "==", false, "\"", "\"", true).Trim_n();
-	} else if (sExpr.find(">=") != CString::npos) {
+	} else if (sExpr.Contains(">=")) {
 		sName = sExpr.Token(0, false, ">=").Trim_n();
 		sValue = sExpr.Token(1, true, ">=", false, "\"", "\"", true).Trim_n();
 		return (GetValue(sName, true).ToLong() >= sValue.ToLong());
-	} else if (sExpr.find("<=") != CString::npos) {
+	} else if (sExpr.Contains("<=")) {
 		sName = sExpr.Token(0, false, "<=").Trim_n();
 		sValue = sExpr.Token(1, true, "<=", false, "\"", "\"", true).Trim_n();
 		return (GetValue(sName, true).ToLong() <= sValue.ToLong());
-	} else if (sExpr.find(">") != CString::npos) {
+	} else if (sExpr.Contains(">")) {
 		sName = sExpr.Token(0, false, ">").Trim_n();
 		sValue = sExpr.Token(1, true, ">", false, "\"", "\"", true).Trim_n();
 		return (GetValue(sName, true).ToLong() > sValue.ToLong());
-	} else if (sExpr.find("<") != CString::npos) {
+	} else if (sExpr.Contains("<")) {
 		sName = sExpr.Token(0, false, "<").Trim_n();
 		sValue = sExpr.Token(1, true, "<", false, "\"", "\"", true).Trim_n();
 		return (GetValue(sName, true).ToLong() < sValue.ToLong());
@@ -749,7 +744,7 @@ bool CTemplate::IsTrue(const CString& sName) {
 }
 
 bool CTemplate::HasLoop(const CString& sName) {
-	return (GetLoop(sName) != NULL);
+	return (GetLoop(sName) != nullptr);
 }
 
 CTemplate* CTemplate::GetParent(bool bRoot) {
@@ -771,10 +766,10 @@ CTemplate* CTemplate::GetCurTemplate() {
 }
 
 CString CTemplate::ResolveLiteral(const CString& sString) {
-	if (sString.Left(2) == "**") {
+	if (sString.StartsWith("**")) {
 		// Allow string to start with a literal * by using two in a row
 		return sString.substr(1);
-	} else if (sString.Left(1) == "*") {
+	} else if (sString.StartsWith("*")) {
 		// If it starts with only one * then treat it as a var and do a lookup
 		return GetValue(sString.substr(1));
 	}
@@ -796,9 +791,7 @@ CString CTemplate::GetValue(const CString& sArgs, bool bFromIf) {
 	//sRest.Split(" ", vArgs, false, "\"", "\"");
 	sRest.QuoteSplit(vArgs);
 
-	for (unsigned int a = 0; a < vArgs.size(); a++) {
-		const CString& sArg = vArgs[a];
-
+	for (const CString& sArg : vArgs) {
 		msArgs[sArg.Token(0, false, "=").AsUpper()] = sArg.Token(1, true, "=");
 	}
 
@@ -816,8 +809,7 @@ CString CTemplate::GetValue(const CString& sArgs, bool bFromIf) {
 			return sRet;
 		}
 	} else {
-		if (sName.Left(1) == "*") {
-			sName.LeftChomp(1);
+		if (sName.TrimPrefix("*")) {
 			MCString::iterator it = find(sName);
 			sName = (it != end()) ? it->second : "";
 		}
@@ -832,8 +824,7 @@ CString CTemplate::GetValue(const CString& sArgs, bool bFromIf) {
 		CTemplate* pTmpl = GetCurTemplate();
 
 		if (sRet.empty()) {
-			for (unsigned int j = 0; j < vspTagHandlers.size(); j++) {
-				std::shared_ptr<CTemplateTagHandler> spTagHandler = vspTagHandlers[j];
+			for (const auto& spTagHandler : vspTagHandlers) {
 				CString sCustomOutput;
 
 				if (!bFromIf && spTagHandler->HandleVar(*pTmpl, sArgs.Token(0), sArgs.Token(1, true), sCustomOutput)) {
@@ -846,9 +837,7 @@ CString CTemplate::GetValue(const CString& sArgs, bool bFromIf) {
 			}
 		}
 
-		for (unsigned int j = 0; j < vspTagHandlers.size(); j++) {
-			std::shared_ptr<CTemplateTagHandler> spTagHandler = vspTagHandlers[j];
-
+		for (const auto& spTagHandler : vspTagHandlers) {
 			if (spTagHandler->HandleValue(*pTmpl, sRet, msArgs)) {
 				break;
 			}
@@ -866,8 +855,8 @@ CString CTemplate::GetValue(const CString& sArgs, bool bFromIf) {
 			VCString vsEscs;
 			it->second.Split(",", vsEscs, false);
 
-			for (unsigned int a = 0; a < vsEscs.size(); a++) {
-				sRet.Escape(CString::ToEscape(vsEscs[a]));
+			for (const CString& sEsc : vsEscs) {
+				sRet.Escape(CString::ToEscape(sEsc));
 			}
 		} else {
 			sRet.Escape(m_spOptions->GetEscapeFrom(), m_spOptions->GetEscapeTo());

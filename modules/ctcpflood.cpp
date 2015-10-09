@@ -16,6 +16,7 @@
 
 #include <znc/Modules.h>
 #include <znc/Chan.h>
+#include <time.h>
 
 class CCtcpFloodMod : public CModule {
 public:
@@ -42,7 +43,7 @@ public:
 		SetArgs(CString(m_iThresholdMsgs) + " " + CString(m_iThresholdSecs));
 	}
 
-	bool OnLoad(const CString& sArgs, CString& sMessage) {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		m_iThresholdMsgs = sArgs.Token(0).ToUInt();
 		m_iThresholdSecs = sArgs.Token(1).ToUInt();
 
@@ -66,8 +67,8 @@ public:
 		if (sMessage.Token(0).Equals("ACTION"))
 			return CONTINUE;
 
-		if (m_tLastCTCP + m_iThresholdSecs < time(NULL)) {
-			m_tLastCTCP = time(NULL);
+		if (m_tLastCTCP + m_iThresholdSecs < time(nullptr)) {
+			m_tLastCTCP = time(nullptr);
 			m_iNumCTCP = 0;
 		}
 
@@ -79,7 +80,7 @@ public:
 			PutModule("Limit reached by [" + Nick.GetHostMask() + "], blocking all CTCP");
 
 		// Reset the timeout so that we continue blocking messages
-		m_tLastCTCP = time(NULL);
+		m_tLastCTCP = time(nullptr);
 
 		return HALT;
 	}

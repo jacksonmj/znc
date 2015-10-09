@@ -32,10 +32,14 @@ public:
 	{
 	}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override;
+	bool OnLoad(const CString& sArgs, CString& sMessage) override;
 
-	virtual EModRet OnUserPart(CString& sChannel, CString& sMessage) override
+	EModRet OnUserPart(CString& sChannel, CString& sMessage) override
 	{
+		if (!GetNetwork()) {
+			return CONTINUE;
+		}
+
 		for (MCString::iterator it = BeginNV(); it != EndNV(); ++it)
 		{
 			if (sChannel.Equals(it->first))
@@ -53,6 +57,20 @@ public:
 		return CONTINUE;
 	}
 
+	virtual void OnMode(const CNick& pOpNick, CChan& Channel, char uMode, const CString& sArg, bool bAdded, bool bNoChange) override {
+		if (uMode == CChan::M_Key) {
+			if (bAdded) {
+				// We ignore channel key "*" because of some broken nets.
+				if (sArg != "*")
+				{
+					SetNV(Channel.GetName(), sArg, true);
+				}
+			} else {
+				SetNV(Channel.GetName(), "", true);
+			}
+		}
+	}
+
 	void OnStickCommand(const CString& sCommand)
 	{
 		CString sChannel = sCommand.Token(1).AsLower();
@@ -60,7 +78,7 @@ public:
 			PutModule("Usage: Stick <#channel> [key]");
 			return;
 		}
-		SetNV(sChannel, sCommand.Token(2));
+		SetNV(sChannel, sCommand.Token(2), true);
 		PutModule("Stuck " + sChannel);
 	}
 
@@ -70,9 +88,7 @@ public:
 			PutModule("Usage: Unstick <#channel>");
 			return;
 		}
-		MCString::iterator it = FindNV(sChannel);
-		if (it != EndNV())
-			DelNV(it);
+		DelNV(sChannel, true);
 		PutModule("Unstuck " + sChannel);
 	}
 
@@ -116,15 +132,15 @@ public:
 		}
 	}
 
-	virtual CString GetWebMenuTitle() override { return "Sticky Chans"; }
+	CString GetWebMenuTitle() override { return "Sticky Chans"; }
 
-	virtual bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		if (sPageName == "index") {
 			bool bSubmitted = (WebSock.GetParam("submitted").ToInt() != 0);
 
 			const vector<CChan*>& Channels = GetNetwork()->GetChans();
-			for (unsigned int c = 0; c < Channels.size(); c++) {
-				const CString sChan = Channels[c]->GetName();
+			for (CChan* pChan : Channels) {
+				const CString sChan = pChan->GetName();
 				bool bStick = FindNV(sChan) != EndNV();
 
 				if(bSubmitted) {
@@ -154,7 +170,7 @@ public:
 		return false;
 	}
 
-	virtual bool OnEmbeddedWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnEmbeddedWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		if (sPageName == "webadmin/channel") {
 			CString sChan = Tmpl["ChanName"];
 			bool bStick = FindNV(sChan) != EndNV();
@@ -175,6 +191,26 @@ public:
 		return false;
 	}
 
+	EModRet OnRaw(CString& sLine) override {
+		CString sNumeric = sLine.Token(1);
+
+		if (sNumeric.Equals("479")) {
+			// ERR_BADCHANNAME (juped channels or illegal channel name - ircd hybrid)
+			// prevent the module from getting into an infinite loop of trying to join it.
+			// :irc.network.net 479 mynick #channel :Illegal channel name
+
+			CString sChannel = sLine.Token(3);
+			for (MCString::iterator it = BeginNV(); it != EndNV(); ++it) {
+				if (sChannel.Equals(it->first)) {
+					PutModule("Channel [" + sChannel + "] cannot be joined, it is an illegal channel name. Unsticking.");
+					OnUnstickCommand("unstick " + sChannel);
+					return CONTINUE;
+				}
+			}
+		}
+
+		return CONTINUE;
+	}
 };
 
 
@@ -186,12 +222,11 @@ static void RunTimer(CModule * pModule, CFPTimer *pTimer)
 bool CStickyChan::OnLoad(const CString& sArgs, CString& sMessage)
 {
 	VCString vsChans;
-	VCString::iterator it;
 	sArgs.Split(",", vsChans, false);
 
-	for (it = vsChans.begin(); it != vsChans.end(); ++it) {
-		CString sChan = it->Token(0);
-		CString sKey = it->Token(1, true);
+	for (const CString& s : vsChans) {
+		CString sChan = s.Token(0);
+		CString sKey = s.Token(1, true);
 		SetNV(sChan, sKey);
 	}
 

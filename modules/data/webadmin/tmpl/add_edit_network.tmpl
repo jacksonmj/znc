@@ -48,14 +48,7 @@
 				<? IF BindHostEdit ?>
 				<div class="subsection">
 					<div class="inputlabel">BindHost:</div>
-					<? IF BindHostLoop ?>
-						<select name="bindhost">
-							<option value="">- Default -</option>
-							<? LOOP BindHostLoop ?><option value="<? VAR BindHost ?>"<? IF Checked ?> selected="selected"<? ENDIF ?>><? VAR BindHost ?></option><? ENDLOOP ?>
-						</select>
-					<? ELSE ?>
-						<input type="text" name="bindhost" value="<? VAR BindHost ?>"/>
-					<? ENDIF ?>
+					<input type="text" name="bindhost" value="<? VAR BindHost ?>"/>
 				</div>
 				<div style="clear: both;"></div>
 				<? ENDIF ?>
@@ -72,13 +65,32 @@
 						<label for="doconnect_checkbox">Connect to IRC &amp; automatically re-connect</label></div>
 				</div>
 
-				<div class="subsection half">
+				<div class="subsection half" id="servers_plain">
 					<div class="inputlabel">Servers of this IRC network:</div>
-					<div><textarea name="servers" cols="70" rows="5"><? LOOP ServerLoop ?><? VAR Server ?>
+					<div><textarea name="servers" cols="70" rows="5" id="servers_text"><? LOOP ServerLoop ?><? VAR Server ?>
 <? ENDLOOP ?>
 </textarea></div>
-					<br /><span class="info">One server per line, "host [[+]port] [password]", + means SSL</span>
+					<br/><span class="info">One server per line, "host [[+]port] [password]", + means SSL</span>
 				</div>
+				<div class="subsection" id="servers_js" style="display:none">
+					<div>Servers of this IRC network:</div>
+					<div>
+						<table style="width:100%">
+							<thead>
+								<tr>
+									<th>Hostname</th>
+									<th>Port</th>
+									<th>SSL</th>
+									<th>Password</th>
+									<th/>
+								</tr>
+							</thead>
+							<tbody id="servers_tbody"/>
+						</table>
+						<input type="button" value="Add" id="servers_add"/>
+					</div>
+				</div>
+				<script type="text/javascript">serverlist_init(jQuery);</script>
 
 				<div class="subsection full">
 					<div class="inputlabel">Trusted SSL fingerprints of this IRC network:</div>
@@ -150,7 +162,7 @@
 						<td>Name</td>
 						<td>CurModes</td>
 						<td>DefModes</td>
-						<td>BufferCount</td>
+						<td>BufferSize</td>
 						<td>Options</td>
 				<? ELSE ?>
 						<td>&lt;- Add a channel (opens in same page)</td>
@@ -169,7 +181,7 @@
 						<td><? VAR Name ?></td>
 						<td><? VAR CurModes ?></td>
 						<td><? VAR DefModes ?></td>
-						<td><? VAR BufferCount ?></td>
+						<td><? VAR BufferSize ?></td>
 						<td><? VAR Options ?></td>
 					</tr>
 			<? ENDLOOP ?>

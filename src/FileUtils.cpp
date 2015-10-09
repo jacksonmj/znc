@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 
 #ifndef HAVE_LSTAT
 #  define lstat(a, b)	stat(a, b)
@@ -33,15 +34,10 @@
 
 CString CFile::m_sHomePath;
 
-CFile::CFile() {
-	m_iFD = -1;
-	ResetError();
+CFile::CFile() : CFile("") {
 }
 
-CFile::CFile(const CString& sLongName) {
-	m_iFD = -1;
-
-	ResetError();
+CFile::CFile(const CString& sLongName) : m_sBuffer(""), m_iFD(-1), m_bHadError(false), m_sLongName(""), m_sShortName("") {
 	SetFileName(sLongName);
 }
 
@@ -50,7 +46,7 @@ CFile::~CFile() {
 }
 
 void CFile::SetFileName(const CString& sLongName) {
-	if (sLongName.Left(2) == "~/") {
+	if (sLongName.StartsWith("~/")) {
 		m_sLongName = CFile::GetHomePath() + sLongName.substr(1);
 	} else
 		m_sLongName = sLongName;
@@ -487,7 +483,7 @@ CString CFile::GetShortName() const { return m_sShortName; }
 CString CFile::GetDir() const {
 	CString sDir(m_sLongName);
 
-	while (!sDir.empty() && sDir.Right(1) != "/" && sDir.Right(1) != "\\") {
+	while (!sDir.empty() && !sDir.EndsWith("/") && !sDir.EndsWith("\\")) {
 		sDir.RightChomp();
 	}
 
@@ -528,7 +524,7 @@ CString CDir::ChangeDir(const CString& sPath, const CString& sAdd, const CString
 
 	CString sAddDir(sAdd);
 
-	if (sAddDir.Left(2) == "~/") {
+	if (sAddDir.StartsWith("~/")) {
 		sAddDir.LeftChomp();
 		sAddDir = sHomeDir + sAddDir;
 	}
@@ -537,9 +533,7 @@ CString CDir::ChangeDir(const CString& sPath, const CString& sAdd, const CString
 	sAddDir += "/";
 	CString sCurDir;
 
-	if (sRet.Right(1) == "/") {
-		sRet.RightChomp();
-	}
+	sRet.TrimSuffix("/");
 
 	for (unsigned int a = 0; a < sAddDir.size(); a++) {
 		switch (sAddDir[a]) {
@@ -565,7 +559,7 @@ CString CDir::CheckPathPrefix(const CString& sPath, const CString& sAdd, const C
 	CString sPrefix = sPath.Replace_n("//", "/").TrimRight_n("/") + "/";
 	CString sAbsolutePath = ChangeDir(sPrefix, sAdd, sHomeDir);
 
-	if (sAbsolutePath.Left(sPrefix.length()) != sPrefix)
+	if (!sAbsolutePath.StartsWith(sPrefix))
 		return "";
 	return sAbsolutePath;
 }
@@ -582,7 +576,7 @@ bool CDir::MakeDir(const CString& sPath, mode_t iMode) {
 	}
 
 	// If this is an absolute path, we need to handle this now!
-	if (sPath.Left(1) == "/")
+	if (sPath.StartsWith("/"))
 		sDir = "/";
 
 	// For every single subpath, do...
@@ -648,7 +642,7 @@ int CExecSock::popen2(int & iReadFD, int & iWriteFD, const CString & sCommand) {
 			"sh",
 			"-c",
 			sCommand.c_str(),
-			NULL
+			nullptr
 		};
 		execvp("sh", (char * const *) pArgv);
 		// if execvp returns, there was an error
@@ -668,9 +662,9 @@ int CExecSock::popen2(int & iReadFD, int & iWriteFD, const CString & sCommand) {
 void CExecSock::close2(int iPid, int iReadFD, int iWriteFD) {
 	close(iReadFD);
 	close(iWriteFD);
-	time_t iNow = time(NULL);
-	while (waitpid(iPid, NULL, WNOHANG) == 0) {
-		if ((time(NULL) - iNow) > 5)
+	time_t iNow = time(nullptr);
+	while (waitpid(iPid, nullptr, WNOHANG) == 0) {
+		if ((time(nullptr) - iNow) > 5)
 			break;  // giveup
 		usleep(100);
 	}

@@ -17,14 +17,12 @@
 #include <znc/Query.h>
 #include <znc/User.h>
 #include <znc/IRCNetwork.h>
+#include <znc/Message.h>
 
 using std::vector;
 
-CQuery::CQuery(const CString& sName, CIRCNetwork* pNetwork) {
-	m_sName = sName;
-	m_pNetwork = pNetwork;
-
-	SetBufferCount(m_pNetwork->GetUser()->GetBufferCount(), true);
+CQuery::CQuery(const CString& sName, CIRCNetwork* pNetwork) : m_sName(sName), m_pNetwork(pNetwork), m_Buffer() {
+	SetBufferCount(m_pNetwork->GetUser()->GetQueryBufferSize(), true);
 }
 
 CQuery::~CQuery() {
@@ -39,8 +37,8 @@ void CQuery::SendBuffer(CClient* pClient, const CBuffer& Buffer) {
 		// Based on CChan::SendBuffer()
 		if (!Buffer.IsEmpty()) {
 			const vector<CClient*> & vClients = m_pNetwork->GetClients();
-			for (size_t uClient = 0; uClient < vClients.size(); ++uClient) {
-				CClient * pUseClient = (pClient ? pClient : vClients[uClient]);
+			for (CClient* pEachClient : vClients) {
+				CClient * pUseClient = (pClient ? pClient : pEachClient);
 
 				MCString msParams;
 				msParams["target"] = pUseClient->GetNick();
@@ -58,24 +56,21 @@ void CQuery::SendBuffer(CClient* pClient, const CBuffer& Buffer) {
 				size_t uSize = Buffer.Size();
 				for (size_t uIdx = 0; uIdx < uSize; uIdx++) {
 					const CBufLine& BufLine = Buffer.GetBufLine(uIdx);
-
-					if (!pUseClient->HasSelfMessage()) {
-						CNick Sender(BufLine.GetFormat().Token(0));
-						if (Sender.NickEquals(pUseClient->GetNick())) {
+					CMessage Message = BufLine.ToMessage(*pUseClient, msParams);
+					if (!pUseClient->HasEchoMessage() && !pUseClient->HasSelfMessage()) {
+						if (Message.GetNick().NickEquals(pUseClient->GetNick())) {
 							continue;
 						}
 					}
-
-					CString sLine = BufLine.GetLine(*pUseClient, msParams);
+					Message.SetNetwork(m_pNetwork);
+					Message.SetClient(pUseClient);
 					if (bBatch) {
-						MCString msBatchTags = CUtils::GetMessageTags(sLine);
-						msBatchTags["batch"] = sBatchName;
-						CUtils::SetMessageTags(sLine, msBatchTags);
+						Message.SetTag("batch", sBatchName);
 					}
 					bool bContinue = false;
-					NETWORKMODULECALL(OnPrivBufferPlayLine2(*pUseClient, sLine, BufLine.GetTime()), m_pNetwork->GetUser(), m_pNetwork, NULL, &bContinue);
+					NETWORKMODULECALL(OnPrivBufferPlayMessage(Message), m_pNetwork->GetUser(), m_pNetwork, nullptr, &bContinue);
 					if (bContinue) continue;
-					m_pNetwork->PutUser(sLine, pUseClient);
+					m_pNetwork->PutUser(Message, pUseClient);
 				}
 
 				if (bBatch) {

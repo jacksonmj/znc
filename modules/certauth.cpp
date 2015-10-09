@@ -32,44 +32,43 @@ public:
 			"[pubkey]", "If pubkey is not provided will use the current key");
 		AddCommand("Del",  static_cast<CModCommand::ModCmdFunc>(&CSSLClientCertMod::HandleDelCommand),
 			"id");
-		AddCommand("List", static_cast<CModCommand::ModCmdFunc>(&CSSLClientCertMod::HandleListCommand));
+		AddCommand("List", static_cast<CModCommand::ModCmdFunc>(&CSSLClientCertMod::HandleListCommand),"", "List your public keys");
 		AddCommand("Show", static_cast<CModCommand::ModCmdFunc>(&CSSLClientCertMod::HandleShowCommand),
 			"", "Print your current key");
 	}
 
 	virtual ~CSSLClientCertMod() {}
 
-	virtual bool OnBoot() override {
+	bool OnBoot() override {
 		const vector<CListener*>& vListeners = CZNC::Get().GetListeners();
-		vector<CListener*>::const_iterator it;
 
 		// We need the SSL_VERIFY_PEER flag on all listeners, or else
 		// the client doesn't send a ssl cert
-		for (it = vListeners.begin(); it != vListeners.end(); ++it)
-			(*it)->GetRealListener()->SetRequireClientCertFlags(SSL_VERIFY_PEER);
+		for (CListener* pListener : vListeners)
+			pListener->GetRealListener()->SetRequireClientCertFlags(SSL_VERIFY_PEER);
 
-		for (MCString::const_iterator it1 = BeginNV(); it1 != EndNV(); ++it1) {
+		for (MCString::const_iterator it = BeginNV(); it != EndNV(); ++it) {
 			VCString vsKeys;
 
-			if (CZNC::Get().FindUser(it1->first) == NULL) {
-				DEBUG("Unknown user in saved data [" + it1->first + "]");
+			if (CZNC::Get().FindUser(it->first) == nullptr) {
+				DEBUG("Unknown user in saved data [" + it->first + "]");
 				continue;
 			}
 
-			it1->second.Split(" ", vsKeys, false);
-			for (VCString::const_iterator it2 = vsKeys.begin(); it2 != vsKeys.end(); ++it2) {
-				m_PubKeys[it1->first].insert(it2->AsLower());
+			it->second.Split(" ", vsKeys, false);
+			for (const CString& sKey : vsKeys) {
+				m_PubKeys[it->first].insert(sKey.AsLower());
 			}
 		}
 
 		return true;
 	}
 
-	virtual void OnPostRehash() override {
+	void OnPostRehash() override {
 		OnBoot();
 	}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		OnBoot();
 
 		return true;
@@ -77,14 +76,14 @@ public:
 
 	bool Save() {
 		ClearNV(false);
-		for (MSCString::const_iterator it = m_PubKeys.begin(); it != m_PubKeys.end(); ++it) {
+		for (const auto& it : m_PubKeys) {
 			CString sVal;
-			for (SCString::const_iterator it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
-				sVal += *it2 + " ";
+			for (const CString& sKey : it.second) {
+				sVal += sKey + " ";
 			}
 
 			if (!sVal.empty())
-				SetNV(it->first, sVal, false);
+				SetNV(it.first, sVal, false);
 		}
 
 		return SaveRegistry();
@@ -101,12 +100,12 @@ public:
 		return pair.second;
 	}
 
-	virtual EModRet OnLoginAttempt(std::shared_ptr<CAuthBase> Auth) override {
+	EModRet OnLoginAttempt(std::shared_ptr<CAuthBase> Auth) override {
 		const CString sUser = Auth->GetUsername();
 		Csock *pSock = Auth->GetSocket();
 		CUser *pUser = CZNC::Get().FindUser(sUser);
 
-		if (pSock == NULL || pUser == NULL)
+		if (pSock == nullptr || pUser == nullptr)
 			return CONTINUE;
 
 		const CString sPubKey = GetKey(pSock);
@@ -177,10 +176,10 @@ public:
 		}
 
 		unsigned int id = 1;
-		for (SCString::const_iterator it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
+		for (const CString& sKey : it->second) {
 			Table.AddRow();
 			Table.SetCell("Id", CString(id++));
-			Table.SetCell("Key", *it2);
+			Table.SetCell("Key", sKey);
 		}
 
 		if (PutModule(Table) == 0) {
@@ -236,17 +235,17 @@ public:
 		}
 	}
 
-	virtual CString GetWebMenuTitle() override { return "certauth"; }
+	CString GetWebMenuTitle() override { return "certauth"; }
 
-	virtual bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		CUser *pUser = WebSock.GetSession()->GetUser();
 
 		if (sPageName == "index") {
 			MSCString::const_iterator it = m_PubKeys.find(pUser->GetUserName());
 			if (it != m_PubKeys.end()) {
-				for (SCString::const_iterator it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
+				for (const CString& sKey : it->second) {
 					CTemplate& row = Tmpl.AddRow("KeyLoop");
-					row["Key"] = *it2;
+					row["Key"] = sKey;
 				}
 			}
 

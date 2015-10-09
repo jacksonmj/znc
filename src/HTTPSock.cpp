@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <znc/HTTPSock.h>
 #include <znc/FileUtils.h>
 #include <znc/znc.h>
 #include <iomanip>
@@ -28,23 +29,40 @@ using std::set;
 
 #define MAX_POST_SIZE	1024 * 1024
 
-CHTTPSock::CHTTPSock(CModule *pMod, const CString& sURIPrefix) : CSocket(pMod), m_sURIPrefix(sURIPrefix) {
+CHTTPSock::CHTTPSock(CModule *pMod, const CString& sURIPrefix) : CHTTPSock(pMod, sURIPrefix, "", 0) {
 	Init();
 }
 
-CHTTPSock::CHTTPSock(CModule *pMod, const CString& sURIPrefix, const CString& sHostname, unsigned short uPort, int iTimeout) : CSocket(pMod, sHostname, uPort, iTimeout), m_sURIPrefix(sURIPrefix) {
+CHTTPSock::CHTTPSock(CModule *pMod, const CString& sURIPrefix, const CString& sHostname, unsigned short uPort, int iTimeout)
+		: CSocket(pMod, sHostname, uPort, iTimeout),
+		  m_bSentHeader(false),
+		  m_bGotHeader(false),
+		  m_bLoggedIn(false),
+		  m_bPost(false),
+		  m_bDone(false),
+		  m_bBasicAuth(false),
+		  m_uPostLen(0),
+		  m_sPostData(""),
+		  m_sURI(""),
+		  m_sUser(""),
+		  m_sPass(""),
+		  m_sContentType(""),
+		  m_sDocRoot(""),
+		  m_sForwardedIP(""),
+		  m_msvsPOSTParams(),
+		  m_msvsGETParams(),
+		  m_msHeaders(),
+		  m_bHTTP10Client(false),
+		  m_sIfNoneMatch(""),
+		  m_bAcceptGzip(false),
+		  m_msRequestCookies(),
+		  m_msResponseCookies(),
+		  m_sURIPrefix(sURIPrefix)
+{
 	Init();
 }
 
 void CHTTPSock::Init() {
-	m_bSentHeader = false;
-	m_bGotHeader = false;
-	m_bLoggedIn = false;
-	m_bPost = false;
-	m_bDone = false;
-	m_bHTTP10Client = false;
-	m_bAcceptGzip = false;
-	m_uPostLen = 0;
 	EnableReadLine();
 	SetMaxBufferThreshold(10240);
 }
@@ -111,9 +129,7 @@ void CHTTPSock::ReadLine(const CString& sData) {
 
 		sLine.Token(1, true).Split(";", vsNV, false, "", "", true, true);
 
-		for (unsigned int a = 0; a < vsNV.size(); a++) {
-			CString s(vsNV[a]);
-
+		for (const CString& s : vsNV) {
 			m_msRequestCookies[s.Token(0, false, "=").Escape_n(CString::EURL, CString::EASCII)] =
 				s.Token(1, true, "=").Escape_n(CString::EURL, CString::EASCII);
 		}
@@ -122,6 +138,7 @@ void CHTTPSock::ReadLine(const CString& sData) {
 		sLine.Token(2).Base64Decode(sUnhashed);
 		m_sUser = sUnhashed.Token(0, false, ":");
 		m_sPass = sUnhashed.Token(1, true, ":");
+		m_bBasicAuth = true;
 		// Postpone authorization attempt until end of headers, because cookies should be read before that, otherwise session id will be overwritten in GetSession()
 	} else if (sName.Equals("Content-Length:")) {
 		m_uPostLen = sLine.Token(1).ToULong();
@@ -140,8 +157,8 @@ void CHTTPSock::ReadLine(const CString& sData) {
 				// sIP told us that it got connection from vsIPs.back()
 				// check if sIP is trusted proxy
 				bool bTrusted = false;
-				for (VCString::const_iterator it = vsTrustedProxies.begin(); it != vsTrustedProxies.end(); ++it) {
-					if (sIP.WildCmp(*it)) {
+				for (const CString& sTrustedProxy : vsTrustedProxies) {
+					if (sIP.WildCmp(sTrustedProxy)) {
 						bTrusted = true;
 						break;
 					}
@@ -168,9 +185,10 @@ void CHTTPSock::ReadLine(const CString& sData) {
 		sLine.Token(1, true).Split(",", ssEncodings, false, "", "", false, true);
 		m_bAcceptGzip = (ssEncodings.find("gzip") != ssEncodings.end());
 	} else if (sLine.empty()) {
-		if (!m_sUser.empty() && !m_bLoggedIn) {
+		if (m_bBasicAuth && !m_bLoggedIn) {
 			m_bLoggedIn = OnLogin(m_sUser, m_sPass, true);
 			// After successful login ReadLine("") will be called again to trigger "else" block
+			// Failed login sends error and closes socket, so no infinite loop here
 		} else {
 			m_bGotHeader = true;
 
@@ -315,21 +333,21 @@ bool CHTTPSock::PrintFile(const CString& sFileName, CString sContentType) {
 	}
 
 	if (sContentType.empty()) {
-		if (sFileName.Right(5).Equals(".html") || sFileName.Right(4).Equals(".htm")) {
+		if (sFileName.EndsWith(".html") || sFileName.EndsWith(".htm")) {
 			sContentType = "text/html; charset=utf-8";
-		} else if (sFileName.Right(4).Equals(".css")) {
+		} else if (sFileName.EndsWith(".css")) {
 			sContentType = "text/css; charset=utf-8";
-		} else if (sFileName.Right(3).Equals(".js")) {
+		} else if (sFileName.EndsWith(".js")) {
 			sContentType = "application/x-javascript; charset=utf-8";
-		} else if (sFileName.Right(4).Equals(".jpg")) {
+		} else if (sFileName.EndsWith(".jpg")) {
 			sContentType = "image/jpeg";
-		} else if (sFileName.Right(4).Equals(".gif")) {
+		} else if (sFileName.EndsWith(".gif")) {
 			sContentType = "image/gif";
-		} else if (sFileName.Right(4).Equals(".ico")) {
+		} else if (sFileName.EndsWith(".ico")) {
 			sContentType = "image/x-icon";
-		} else if (sFileName.Right(4).Equals(".png")) {
+		} else if (sFileName.EndsWith(".png")) {
 			sContentType = "image/png";
-		} else if (sFileName.Right(4).Equals(".bmp")) {
+		} else if (sFileName.EndsWith(".bmp")) {
 			sContentType = "image/bmp";
 		} else {
 			sContentType = "text/plain; charset=utf-8";
@@ -349,7 +367,7 @@ bool CHTTPSock::PrintFile(const CString& sFileName, CString sContentType) {
 
 		if (!m_sIfNoneMatch.empty()) {
 			m_sIfNoneMatch.Trim("\\\"'");
-			bNotModified = (m_sIfNoneMatch.Equals(sETag, true));
+			bNotModified = (m_sIfNoneMatch.Equals(sETag, CString::CaseSensitive));
 		}
 	}
 
@@ -367,7 +385,7 @@ bool CHTTPSock::PrintFile(const CString& sFileName, CString sContentType) {
 		}
 
 #ifdef HAVE_ZLIB
-		bool bGzip = m_bAcceptGzip && (sContentType.Left(5).Equals("text/") || sFileName.Right(3).Equals(".js"));
+		bool bGzip = m_bAcceptGzip && (sContentType.StartsWith("text/") || sFileName.EndsWith(".js"));
 
 		if (bGzip) {
 			DEBUG("- Sending gzip-compressed.");
@@ -476,8 +494,7 @@ void CHTTPSock::ParseParams(const CString& sParams, map<CString, VCString> &msvs
 	VCString vsPairs;
 	sParams.Split("&", vsPairs, true);
 
-	for (unsigned int a = 0; a < vsPairs.size(); a++) {
-		const CString& sPair = vsPairs[a];
+	for (const CString& sPair : vsPairs) {
 		CString sName = sPair.Token(0, false, "=").Escape_n(CString::EURL, CString::EASCII);
 		CString sValue = sPair.Token(1, true, "=").Escape_n(CString::EURL, CString::EASCII);
 
@@ -567,8 +584,7 @@ size_t CHTTPSock::GetParamValues(const CString& sName, set<CString>& ssRet, cons
 	map<CString, VCString>::const_iterator it = msvsParams.find(sName);
 
 	if (it != msvsParams.end()) {
-		for (unsigned int a = 0; a < it->second.size(); a++) {
-			CString sParam = it->second[a];
+		for (CString sParam : it->second) {
 			sParam.Trim();
 
 			for (size_t i = 0; i < sFilter.length(); i++) {
@@ -593,8 +609,7 @@ size_t CHTTPSock::GetParamValues(const CString& sName, VCString& vsRet, const ma
 	map<CString, VCString>::const_iterator it = msvsParams.find(sName);
 
 	if (it != msvsParams.end()) {
-		for (unsigned int a = 0; a < it->second.size(); a++) {
-			CString sParam = it->second[a];
+		for (CString sParam : it->second) {
 			sParam.Trim();
 
 			for (size_t i = 0; i < sFilter.length(); i++) {
@@ -639,10 +654,7 @@ bool CHTTPSock::PrintErrorPage(unsigned int uStatusId, const CString& sStatusMsg
 				"<h1>" + sStatusMsg.Escape_n(CString::EHTML) + "</h1>\r\n"
 				"<p>" + sMessage.Escape_n(CString::EHTML) + "</p>\r\n"
 				"<hr/>\r\n"
-				"<address>" +
-					CZNC::GetTag(false, /* bHTML = */ true) +
-					" at " + GetLocalIP().Escape_n(CString::EHTML) + " Port " + CString(GetLocalPort()) +
-				"</address>\r\n"
+				"<p>" + CZNC::GetTag(false, /* bHTML = */ true) + "</p>\r\n"
 			"</body>\r\n"
 		"</html>\r\n";
 
@@ -701,14 +713,12 @@ bool CHTTPSock::PrintHeader(off_t uContentLength, const CString& sContentType, u
 	}
 	Write("Content-Type: " + m_sContentType + "\r\n");
 
-	MCString::iterator it;
-
-	for (it = m_msResponseCookies.begin(); it != m_msResponseCookies.end(); ++it) {
-		Write("Set-Cookie: " + it->first.Escape_n(CString::EURL) + "=" + it->second.Escape_n(CString::EURL) + "; path=/;" + (GetSSL() ? "Secure;" : "") + "\r\n");
+	for (const auto& it : m_msResponseCookies) {
+		Write("Set-Cookie: " + it.first.Escape_n(CString::EURL) + "=" + it.second.Escape_n(CString::EURL) + "; HttpOnly; path=/;" + (GetSSL() ? "Secure;" : "") + "\r\n");
 	}
 
-	for (it = m_msHeaders.begin(); it != m_msHeaders.end(); ++it) {
-		Write(it->first + ": " + it->second + "\r\n");
+	for (const auto& it : m_msHeaders) {
+		Write(it.first + ": " + it.second + "\r\n");
 	}
 
 	Write("Connection: Close\r\n");

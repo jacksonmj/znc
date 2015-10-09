@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef _USER_H
-#define _USER_H
+#ifndef ZNC_USER_H
+#define ZNC_USER_H
 
 #include <znc/zncconfig.h>
 #include <znc/Utils.h>
@@ -39,6 +39,9 @@ public:
 	CUser(const CString& sUserName);
 	~CUser();
 
+	CUser(const CUser&) = delete;
+	CUser& operator=(const CUser&) = delete;
+
 	bool ParseConfig(CConfig* Config, CString& sError);
 
 	// TODO refactor this
@@ -60,6 +63,8 @@ public:
 	CConfig ToConfig() const;
 	bool CheckPass(const CString& sPass) const;
 	bool AddAllowedHost(const CString& sHostMask);
+	bool RemAllowedHost(const CString& sHostMask);
+	void ClearAllowedHosts();
 	bool IsHostAllowed(const CString& sHostMask) const;
 	bool IsValid(CString& sErrMsg, bool bSkipPass = false) const;
 	static bool IsValidUserName(const CString& sUserName);
@@ -80,12 +85,12 @@ public:
 	bool HasSpaceForNewNetwork() const;
 	// !Networks
 
-	bool PutUser(const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutAllUser(const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutStatus(const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutStatusNotice(const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutModule(const CString& sModule, const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutModNotice(const CString& sModule, const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
+	bool PutUser(const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutAllUser(const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutStatus(const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutStatusNotice(const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutModule(const CString& sModule, const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutModNotice(const CString& sModule, const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
 
 	bool IsUserAttached() const;
 	void UserConnected(CClient* pClient);
@@ -124,7 +129,10 @@ public:
 	void SetQuitMsg(const CString& s);
 	bool AddCTCPReply(const CString& sCTCP, const CString& sReply);
 	bool DelCTCPReply(const CString& sCTCP);
+	/** @deprecated Use SetChanBufferSize() or SetQueryBufferSize() instead. */
 	bool SetBufferCount(unsigned int u, bool bForce = false);
+	bool SetChanBufferSize(unsigned int u, bool bForce = false);
+	bool SetQueryBufferSize(unsigned int u, bool bForce = false);
 	void SetAutoClearChanBuffer(bool b);
 	void SetAutoClearQueryBuffer(bool b);
 
@@ -148,7 +156,7 @@ public:
 	const CString& GetNick(bool bAllowDefault = true) const;
 	const CString& GetAltNick(bool bAllowDefault = true) const;
 	const CString& GetIdent(bool bAllowDefault = true) const;
-	const CString& GetRealName() const;
+	CString GetRealName() const;
 	const CString& GetBindHost() const;
 	const CString& GetDCCBindHost() const;
 	const CString& GetPass() const;
@@ -171,13 +179,16 @@ public:
 
 	CString GetQuitMsg() const;
 	const MCString& GetCTCPReplies() const;
+	/** @deprecated Use GetChanBufferSize() or GetQueryBufferSize() instead. */
 	unsigned int GetBufferCount() const;
+	unsigned int GetChanBufferSize() const;
+	unsigned int GetQueryBufferSize() const;
 	bool AutoClearChanBuffer() const;
 	bool AutoClearQueryBuffer() const;
 	bool IsBeingDeleted() const { return m_bBeingDeleted; }
 	CString GetTimezone() const { return m_sTimezone; }
-	unsigned long long BytesRead() const { return m_uBytesRead; }
-	unsigned long long BytesWritten() const { return m_uBytesWritten; }
+	unsigned long long BytesRead() const;
+	unsigned long long BytesWritten() const;
 	unsigned int JoinTries() const { return m_uMaxJoinTries; }
 	unsigned int MaxJoins() const { return m_uMaxJoins; }
 	CString GetSkinName() const;
@@ -225,7 +236,8 @@ protected:
 	std::vector<CIRCNetwork*>  m_vIRCNetworks;
 	std::vector<CClient*>      m_vClients;
 	std::set<CString>     m_ssAllowedHosts;
-	unsigned int          m_uBufferCount;
+	unsigned int          m_uChanBufferSize;
+	unsigned int          m_uQueryBufferSize;
 	unsigned long long    m_uBytesRead;
 	unsigned long long    m_uBytesWritten;
 	unsigned int          m_uMaxJoinTries;
@@ -241,4 +253,4 @@ private:
 	bool LoadModule(const CString& sModName, const CString& sArgs, const CString& sNotice, CString& sError);
 };
 
-#endif // !_USER_H
+#endif // !ZNC_USER_H

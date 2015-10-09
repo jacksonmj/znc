@@ -24,14 +24,12 @@ struct ConfigStackEntry {
 	CString sName;
 	CConfig Config;
 
-	ConfigStackEntry(const CString& Tag, const CString Name) {
-		sTag = Tag;
-		sName = Name;
+	ConfigStackEntry(const CString& Tag, const CString Name) : sTag(Tag), sName(Name), Config() {
 	}
 };
 
 CConfigEntry::CConfigEntry()
-	: m_pSubConfig(NULL) {
+	: m_pSubConfig(nullptr) {
 }
 
 CConfigEntry::CConfigEntry(const CConfig& Config)
@@ -39,7 +37,7 @@ CConfigEntry::CConfigEntry(const CConfig& Config)
 }
 
 CConfigEntry::CConfigEntry(const CConfigEntry& other)
-	: m_pSubConfig(NULL) {
+	: m_pSubConfig(nullptr) {
 	if (other.m_pSubConfig)
 		m_pSubConfig = new CConfig(*other.m_pSubConfig);
 }
@@ -54,7 +52,7 @@ CConfigEntry& CConfigEntry::operator=(const CConfigEntry& other) {
 	if (other.m_pSubConfig)
 		m_pSubConfig = new CConfig(*other.m_pSubConfig);
 	else
-		m_pSubConfig = NULL;
+		m_pSubConfig = nullptr;
 	return *this;
 }
 
@@ -87,18 +85,18 @@ bool CConfig::Parse(CFile& file, CString& sErrorMsg)
 		sLine.TrimLeft();
 		sLine.TrimRight("\r\n");
 
-		if (bCommented || sLine.Left(2) == "/*") {
+		if (bCommented || sLine.StartsWith("/*")) {
 			/* Does this comment end on the same line again? */
-			bCommented = (sLine.Right(2) != "*/");
+			bCommented = (!sLine.EndsWith("*/"));
 
 			continue;
 		}
 
-		if ((sLine.empty()) || (sLine[0] == '#') || (sLine.Left(2) == "//")) {
+		if ((sLine.empty()) || (sLine.StartsWith("#")) || (sLine.StartsWith("//"))) {
 			continue;
 		}
 
-		if ((sLine.Left(1) == "<") && (sLine.Right(1) == ">")) {
+		if ((sLine.StartsWith("<")) && (sLine.EndsWith(">"))) {
 			sLine.LeftChomp();
 			sLine.RightChomp();
 			sLine.Trim();
@@ -109,9 +107,7 @@ bool CConfig::Parse(CFile& file, CString& sErrorMsg)
 			sTag.Trim();
 			sValue.Trim();
 
-			if (sTag.Left(1) == "/") {
-				sTag = sTag.substr(1);
-
+			if (sTag.TrimPrefix("/")) {
 				if (!sValue.empty())
 					ERROR("Malformated closing tag. Expected \"</" << sTag << ">\".");
 				if (ConfigStack.empty())
@@ -155,8 +151,7 @@ bool CConfig::Parse(CFile& file, CString& sErrorMsg)
 
 		// Only remove the first space, people might want
 		// leading spaces (e.g. in the MOTD).
-		if (sValue.Left(1) == " ")
-			sValue.LeftChomp();
+		sValue.TrimPrefix(" ");
 
 		// We don't have any names with spaces, trim all
 		// leading/trailing spaces.
@@ -183,19 +178,19 @@ bool CConfig::Parse(CFile& file, CString& sErrorMsg)
 void CConfig::Write(CFile& File, unsigned int iIndentation) {
 	CString sIndentation = CString(iIndentation, '\t');
 
-	for (EntryMapIterator it = m_ConfigEntries.begin(); it != m_ConfigEntries.end(); ++it) {
-		for (VCString::const_iterator it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
-			File.Write(sIndentation + it->first + " = " + *it2 + "\n");
+	for (const auto& it : m_ConfigEntries) {
+		for (const CString& sValue : it.second) {
+			File.Write(sIndentation + it.first + " = " + sValue + "\n");
 		}
 	}
 
-	for (SubConfigMapIterator it = m_SubConfigs.begin(); it != m_SubConfigs.end(); ++it) {
-		for (SubConfig::const_iterator it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
+	for (const auto& it : m_SubConfigs) {
+		for (const auto& it2 : it.second) {
 			File.Write("\n");
 
-			File.Write(sIndentation + "<" + it->first + " " + it2->first + ">\n");
-			it2->second.m_pSubConfig->Write(File, iIndentation + 1);
-			File.Write(sIndentation + "</" + it->first + ">\n");
+			File.Write(sIndentation + "<" + it.first + " " + it2.first + ">\n");
+			it2.second.m_pSubConfig->Write(File, iIndentation + 1);
+			File.Write(sIndentation + "</" + it.first + ">\n");
 		}
 	}
 }

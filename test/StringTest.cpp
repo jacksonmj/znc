@@ -58,8 +58,8 @@ TEST_F(EscapeTest, Test) {
 }
 
 TEST(StringTest, Bool) {
-	EXPECT_EQ(true, CString(true).ToBool());
-	EXPECT_EQ(false, CString(false).ToBool());
+	EXPECT_TRUE(CString(true).ToBool());
+	EXPECT_FALSE(CString(false).ToBool());
 }
 
 #define CS(s) (CString((s), sizeof(s)-1))
@@ -85,11 +85,32 @@ TEST(StringTest, Cmp) {
 }
 
 TEST(StringTest, Wild) {
-	EXPECT_TRUE(CString::WildCmp("*!?bar@foo", "I_am!~bar@foo"));
-	EXPECT_TRUE(CString::WildCmp("", ""));
-	EXPECT_TRUE(CString::WildCmp("*a*b*c*", "abc"));
-	EXPECT_TRUE(CString::WildCmp("*a*b*c*", "axbyc"));
-	EXPECT_FALSE(CString::WildCmp("*a*b*c*", "xy"));
+	EXPECT_TRUE(CString::WildCmp("", "", CString::CaseSensitive));
+	EXPECT_TRUE(CString::WildCmp("", "", CString::CaseInsensitive));
+
+	EXPECT_FALSE(CString::WildCmp("*a*b*c*", "xy", CString::CaseSensitive));
+	EXPECT_FALSE(CString::WildCmp("*a*b*c*", "xy", CString::CaseInsensitive));
+
+	EXPECT_TRUE(CString::WildCmp("*!?bar@foo", "I_am!~bar@foo", CString::CaseSensitive));
+	EXPECT_TRUE(CString::WildCmp("*!?bar@foo", "I_am!~bar@foo", CString::CaseInsensitive));
+
+	EXPECT_FALSE(CString::WildCmp("*!?BAR@foo", "I_am!~bar@foo", CString::CaseSensitive));
+	EXPECT_TRUE (CString::WildCmp("*!?BAR@foo", "I_am!~bar@foo", CString::CaseInsensitive));
+
+	EXPECT_TRUE(CString::WildCmp("*a*b*c*", "abc", CString::CaseSensitive));
+	EXPECT_TRUE(CString::WildCmp("*a*b*c*", "abc", CString::CaseInsensitive));
+
+	EXPECT_FALSE(CString::WildCmp("*A*b*c*", "abc", CString::CaseSensitive));
+	EXPECT_TRUE (CString::WildCmp("*A*b*c*", "abc", CString::CaseInsensitive));
+
+	EXPECT_FALSE(CString::WildCmp("*a*b*c*", "Abc", CString::CaseSensitive));
+	EXPECT_TRUE (CString::WildCmp("*a*b*c*", "Abc", CString::CaseInsensitive));
+
+	EXPECT_TRUE(CString::WildCmp("*a*b*c*", "axbyc", CString::CaseSensitive));
+	EXPECT_TRUE(CString::WildCmp("*a*b*c*", "axbyc", CString::CaseInsensitive));
+
+	EXPECT_FALSE(CString::WildCmp("*a*B*c*", "AxByC", CString::CaseSensitive));
+	EXPECT_TRUE (CString::WildCmp("*a*B*c*", "AxByC", CString::CaseInsensitive));
 }
 
 TEST(StringTest, Case) {
@@ -140,18 +161,15 @@ TEST(StringTest, Split) {
 	CS("a b c").Split(" ", vresult);
 	EXPECT_EQ(vexpected, vresult);
 
-	MCString mexpected;
+	MCString mexpected = { {"a","b"}, {"c","d"} };
 	MCString mresult;
 
-	mexpected["a"] = "b";
-	mexpected["c"] = "d";
 	CS("a=x&c=d&a=b").URLSplit(mresult);
 	EXPECT_EQ(mexpected, mresult) << "URLSplit";
 }
 
 TEST(StringTest, NamedFormat) {
-	MCString m;
-	m["a"] = "b";
+	MCString m = { {"a","b"} };
 	EXPECT_EQ("{xbyb", CString::NamedFormat(CS("\\{x{a}y{a}"), m));
 }
 
@@ -172,13 +190,13 @@ TEST(StringTest, Equals) {
 }
 
 TEST(StringTest, Find) {
-	EXPECT_EQ(CString("Hello, I'm Bob").Find("Hello"), 0u);
-	EXPECT_EQ(CString("Hello, I'm Bob").Find("Hello", CString::CaseInsensitive), 0u);
-	EXPECT_EQ(CString("Hello, I'm Bob").Find("Hello", CString::CaseSensitive), 0u);
+	EXPECT_EQ(0u, CString("Hello, I'm Bob").Find("Hello"));
+	EXPECT_EQ(0u, CString("Hello, I'm Bob").Find("Hello", CString::CaseInsensitive));
+	EXPECT_EQ(0u, CString("Hello, I'm Bob").Find("Hello", CString::CaseSensitive));
 
-	EXPECT_EQ(CString("Hello, I'm Bob").Find("i'm"), 7u);
-	EXPECT_EQ(CString("Hello, I'm Bob").Find("i'm", CString::CaseInsensitive), 7u);
-	EXPECT_EQ(CString("Hello, I'm Bob").Find("i'm", CString::CaseSensitive), CString::npos);
+	EXPECT_EQ(7u, CString("Hello, I'm Bob").Find("i'm"));
+	EXPECT_EQ(7u, CString("Hello, I'm Bob").Find("i'm", CString::CaseInsensitive));
+	EXPECT_EQ(CString::npos, CString("Hello, I'm Bob").Find("i'm", CString::CaseSensitive));
 }
 
 TEST(StringTest, StartsWith) {

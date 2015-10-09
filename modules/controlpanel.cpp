@@ -71,11 +71,9 @@ class CAdminMod : public CModule {
 		static const char* doublenum = "Double";
 
 		const CString sCmdFilter = sLine.Token(1, false);
-		const CString::size_type iCmdLength = sCmdFilter.size();
-
 		const CString sVarFilter = sLine.Token(2, true).AsLower();
 
-		if (sCmdFilter.empty() || sCmdFilter.Equals("Set", false, iCmdLength) || sCmdFilter.Equals("Get", false, iCmdLength)) {
+		if (sCmdFilter.empty() || sCmdFilter.StartsWith("Set") || sCmdFilter.StartsWith("Get")) {
 			static const char* vars[][2] = {
 				{"Nick",                str},
 				{"Altnick",             str},
@@ -87,7 +85,8 @@ class CAdminMod : public CModule {
 				{"DenySetBindHost",     boolean},
 				{"DefaultChanModes",    str},
 				{"QuitMsg",             str},
-				{"BufferCount",         integer},
+				{"ChanBufferSize",      integer},
+				{"QueryBufferSize",     integer},
 				{"AutoClearChanBuffer", boolean},
 				{"AutoClearQueryBuffer",boolean},
 				{"Password",            str},
@@ -109,7 +108,7 @@ class CAdminMod : public CModule {
 			PrintVarsHelp(sVarFilter, vars, ARRAY_SIZE(vars), "The following variables are available when using the Set/Get commands:");
 		}
 
-		if (sCmdFilter.empty() || sCmdFilter.Equals("SetNetwork", false, iCmdLength) || sCmdFilter.Equals("GetNetwork", false, iCmdLength)) {
+		if (sCmdFilter.empty() || sCmdFilter.StartsWith("SetNetwork") || sCmdFilter.StartsWith("GetNetwork")) {
 			static const char* nvars[][2] = {
 				{"Nick",                str},
 				{"Altnick",             str},
@@ -127,11 +126,11 @@ class CAdminMod : public CModule {
 			PrintVarsHelp(sVarFilter, nvars, ARRAY_SIZE(nvars), "The following variables are available when using the SetNetwork/GetNetwork commands:");
 		}
 
-		if (sCmdFilter.empty() || sCmdFilter.Equals("SetChan", false, iCmdLength) || sCmdFilter.Equals("GetChan", false, iCmdLength)) {
+		if (sCmdFilter.empty() || sCmdFilter.StartsWith("SetChan") || sCmdFilter.StartsWith("GetChan")) {
 			static const char* cvars[][2] = {
 				{"DefModes",            str},
 				{"Key",                 str},
-				{"Buffer",              integer},
+				{"BufferSize",          integer},
 				{"InConfig",            boolean},
 				{"AutoClearChanBuffer", boolean},
 				{"Detached",            boolean}
@@ -140,22 +139,37 @@ class CAdminMod : public CModule {
 		}
 
 		if (sCmdFilter.empty())
-			PutModule("You can use $me as the user name for modifying your own user.");
+			PutModule("You can use $user as the user name and $network as the network name for modifying your own user and network.");
 	}
 
 	CUser* FindUser(const CString& sUsername) {
-		if (sUsername.Equals("$me"))
+		if (sUsername.Equals("$me") || sUsername.Equals("$user"))
 			return GetUser();
 		CUser *pUser = CZNC::Get().FindUser(sUsername);
 		if (!pUser) {
 			PutModule("Error: User [" + sUsername + "] not found.");
-			return NULL;
+			return nullptr;
 		}
 		if (pUser != GetUser() && !GetUser()->IsAdmin()) {
 			PutModule("Error: You need to have admin rights to modify other users!");
-			return NULL;
+			return nullptr;
 		}
 		return pUser;
+	}
+
+	CIRCNetwork* FindNetwork(CUser* pUser, const CString& sNetwork) {
+		if (sNetwork.Equals("$net") || sNetwork.Equals("$network")) {
+			if (pUser != GetUser()) {
+				PutModule("Error: You cannot use " + sNetwork + " to modify other users!");
+				return nullptr;
+			}
+			return CModule::GetNetwork();
+		}
+		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		if (!pNetwork) {
+			PutModule("Error: [" + pUser->GetUserName() + "] does not have a network named [" + sNetwork + "].");
+		}
+		return pNetwork;
 	}
 
 	void Get(const CString& sLine) {
@@ -199,6 +213,10 @@ class CAdminMod : public CModule {
 			PutModule("QuitMsg = " + pUser->GetQuitMsg());
 		else if (sVar == "buffercount")
 			PutModule("BufferCount = " + CString(pUser->GetBufferCount()));
+		else if (sVar == "chanbuffersize")
+			PutModule("ChanBufferSize = " + CString(pUser->GetChanBufferSize()));
+		else if (sVar == "querybuffersize")
+			PutModule("QueryBufferSize = " + CString(pUser->GetQueryBufferSize()));
 		else if (sVar == "keepbuffer")
 			PutModule("KeepBuffer = " + CString(!pUser->AutoClearChanBuffer())); // XXX compatibility crap, added in 0.207
 		else if (sVar == "autoclearchanbuffer")
@@ -272,24 +290,6 @@ class CAdminMod : public CModule {
 					return;
 				}
 
-				const VCString& vsHosts = CZNC::Get().GetBindHosts();
-				if (!GetUser()->IsAdmin() && !vsHosts.empty()) {
-					VCString::const_iterator it;
-					bool bFound = false;
-
-					for (it = vsHosts.begin(); it != vsHosts.end(); ++it) {
-						if (sValue.Equals(*it)) {
-							bFound = true;
-							break;
-						}
-					}
-
-					if (!bFound) {
-						PutModule("You may not use this bind host. See /msg " + GetUser()->GetStatusPrefix() + "status ListBindHosts for a list");
-						return;
-					}
-				}
-
 				pUser->SetBindHost(sValue);
 				PutModule("BindHost = " + sValue);
 			} else {
@@ -327,11 +327,21 @@ class CAdminMod : public CModule {
 			pUser->SetQuitMsg(sValue);
 			PutModule("QuitMsg = " + sValue);
 		}
-		else if (sVar == "buffercount") {
+		else if (sVar == "chanbuffersize" || sVar == "buffercount") {
 			unsigned int i = sValue.ToUInt();
 			// Admins don't have to honour the buffer limit
-			if (pUser->SetBufferCount(i, GetUser()->IsAdmin())) {
-				PutModule("BufferCount = " + sValue);
+			if (pUser->SetChanBufferSize(i, GetUser()->IsAdmin())) {
+				PutModule("ChanBufferSize = " + sValue);
+			} else {
+				PutModule("Setting failed, limit is " +
+						CString(CZNC::Get().GetMaxBufferSize()));
+			}
+		}
+		else if (sVar == "querybuffersize") {
+			unsigned int i = sValue.ToUInt();
+			// Admins don't have to honour the buffer limit
+			if (pUser->SetQueryBufferSize(i, GetUser()->IsAdmin())) {
+				PutModule("QueryBufferSize = " + sValue);
 			} else {
 				PutModule("Setting failed, limit is " +
 						CString(CZNC::Get().GetMaxBufferSize()));
@@ -440,28 +450,25 @@ class CAdminMod : public CModule {
 		const CString sUsername = sLine.Token(2);
 		const CString sNetwork = sLine.Token(3);
 
-		CUser *pUser = NULL;
-		CIRCNetwork *pNetwork = NULL;
+		CIRCNetwork *pNetwork = nullptr;
+
+		if (sVar.empty()) {
+			PutModule("Usage: GetNetwork <variable> [username] [network]");
+			return;
+		}
 
 		if (sUsername.empty()) {
-			pUser = GetUser();
 			pNetwork = CModule::GetNetwork();
 		} else {
-			pUser = FindUser(sUsername);
+			CUser* pUser = FindUser(sUsername);
 			if (!pUser) {
 				return;
 			}
 
-			pNetwork = pUser->FindNetwork(sNetwork);
+			pNetwork = FindNetwork(pUser, sNetwork);
 			if (!pNetwork && !sNetwork.empty()) {
-				PutModule("Network [" + sNetwork + "] not found.");
 				return;
 			}
-		}
-
-		if (!pNetwork) {
-			PutModule("Usage: GetNetwork <variable> <username> <network>");
-			return;
 		}
 
 		if (sVar.Equals("nick")) {
@@ -497,8 +504,13 @@ class CAdminMod : public CModule {
 		const CString sNetwork = sLine.Token(3);
 		const CString sValue = sLine.Token(4, true);
 
-		CUser *pUser = NULL;
-		CIRCNetwork *pNetwork = NULL;
+		CUser *pUser = nullptr;
+		CIRCNetwork *pNetwork = nullptr;
+
+		if (sValue.empty()) {
+			PutModule("Usage: SetNetwork <variable> <username> <network> <value>");
+			return;
+		}
 
 		if (sUsername.empty()) {
 			pUser = GetUser();
@@ -509,16 +521,10 @@ class CAdminMod : public CModule {
 				return;
 			}
 
-			pNetwork = pUser->FindNetwork(sNetwork);
+			pNetwork = FindNetwork(pUser, sNetwork);
 			if (!pNetwork && !sNetwork.empty()) {
-				PutModule("Network [" + sNetwork + "] not found.");
 				return;
 			}
-		}
-
-		if (!pNetwork) {
-			PutModule("Usage: SetNetwork <variable> <username> <network> <value>");
-			return;
 		}
 
 		if (sVar.Equals("nick")) {
@@ -538,24 +544,6 @@ class CAdminMod : public CModule {
 				if (sValue.Equals(pNetwork->GetBindHost())) {
 					PutModule("This bind host is already set!");
 					return;
-				}
-
-				const VCString& vsHosts = CZNC::Get().GetBindHosts();
-				if (!GetUser()->IsAdmin() && !vsHosts.empty()) {
-					VCString::const_iterator it;
-					bool bFound = false;
-
-					for (it = vsHosts.begin(); it != vsHosts.end(); ++it) {
-						if (sValue.Equals(*it)) {
-							bFound = true;
-							break;
-						}
-					}
-
-					if (!bFound) {
-						PutModule("You may not use this bind host. See /msg " + GetUser()->GetStatusPrefix() + "status ListBindHosts for a list");
-						return;
-					}
 				}
 
 				pNetwork->SetBindHost(sValue);
@@ -599,9 +587,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 				
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("Error: [" + sUsername + "] does not have a network named [" + sNetwork + "].");
 			return;
 		}
 		
@@ -631,9 +618,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 		
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("Error: [" + sUsername + "] does not have a network named [" + sNetwork + "].");
 			return;
 		}
 		
@@ -669,9 +655,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("[" + sUsername + "] does not have a network named [" + sNetwork + "]");
 			return;
 		}
 
@@ -684,12 +669,12 @@ class CAdminMod : public CModule {
 		for (CChan* pChan : vChans) {
 			if (sVar == "defmodes") {
 				PutModule(pChan->GetName() + ": DefModes = " + pChan->GetDefaultModes());
-			} else if (sVar == "buffer") {
+			} else if (sVar == "buffersize" || sVar == "buffer") {
 				CString sValue(pChan->GetBufferCount());
 				if (!pChan->HasBufferCountSet()) {
 					sValue += " (default)";
 				}
-				PutModule(pChan->GetName() + ": Buffer = " + sValue);
+				PutModule(pChan->GetName() + ": BufferSize = " + sValue);
 			} else if (sVar == "inconfig") {
 				PutModule(pChan->GetName() + ": InConfig = " + CString(pChan->InConfig()));
 			} else if (sVar == "keepbuffer") {
@@ -727,9 +712,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("[" + sUsername + "] does not have a network named [" + sNetwork + "]");
 			return;
 		}
 
@@ -743,11 +727,14 @@ class CAdminMod : public CModule {
 			if (sVar == "defmodes") {
 				pChan->SetDefaultModes(sValue);
 				PutModule(pChan->GetName() + ": DefModes = " + sValue);
-			} else if (sVar == "buffer") {
+			} else if (sVar == "buffersize" || sVar == "buffer") {
 				unsigned int i = sValue.ToUInt();
+				if (sValue.Equals("-")) {
+					pChan->ResetBufferCount();
+					PutModule(pChan->GetName() + ": BufferSize = " + CString(pChan->GetBufferCount()));
 				// Admins don't have to honour the buffer limit
-				if (pChan->SetBufferCount(i, GetUser()->IsAdmin())) {
-					PutModule(pChan->GetName() + ": Buffer = " + sValue);
+				} else if (pChan->SetBufferCount(i, GetUser()->IsAdmin())) {
+					PutModule(pChan->GetName() + ": BufferSize = " + sValue);
 				} else {
 					PutModule("Setting failed, limit is " +
 							CString(CZNC::Get().GetMaxBufferSize()));
@@ -762,9 +749,13 @@ class CAdminMod : public CModule {
 				pChan->SetAutoClearChanBuffer(b);
 				PutModule(pChan->GetName() + ": AutoClearChanBuffer = " + CString(b));
 			} else if (sVar == "autoclearchanbuffer") {
-				bool b = sValue.ToBool();
-				pChan->SetAutoClearChanBuffer(b);
-				PutModule(pChan->GetName() + ": AutoClearChanBuffer = " + CString(b));
+				if (sValue.Equals("-")) {
+					pChan->ResetAutoClearChanBuffer();
+				} else {
+					bool b = sValue.ToBool();
+					pChan->SetAutoClearChanBuffer(b);
+				}
+				PutModule(pChan->GetName() + ": AutoClearChanBuffer = " + CString(pChan->AutoClearChanBuffer()));
 			} else if (sVar == "detached") {
 				bool b = sValue.ToBool();
 				if (pChan->IsDetached() != b) {
@@ -798,18 +789,18 @@ class CAdminMod : public CModule {
 		Table.AddColumn("Ident");
 		Table.AddColumn("BindHost");
 
-		for (map<CString, CUser*>::const_iterator it = msUsers.begin(); it != msUsers.end(); ++it) {
+		for (const auto& it : msUsers) {
 			Table.AddRow();
-			Table.SetCell("Username", it->first);
-			Table.SetCell("Realname", it->second->GetRealName());
-			if (!it->second->IsAdmin())
+			Table.SetCell("Username", it.first);
+			Table.SetCell("Realname", it.second->GetRealName());
+			if (!it.second->IsAdmin())
 				Table.SetCell("IsAdmin", "No");
 			else
 				Table.SetCell("IsAdmin", "Yes");
-			Table.SetCell("Nick", it->second->GetNick());
-			Table.SetCell("AltNick", it->second->GetAltNick());
-			Table.SetCell("Ident", it->second->GetIdent());
-			Table.SetCell("BindHost", it->second->GetBindHost());
+			Table.SetCell("Nick", it.second->GetNick());
+			Table.SetCell("AltNick", it.second->GetAltNick());
+			Table.SetCell("Ident", it.second->GetIdent());
+			Table.SetCell("BindHost", it.second->GetBindHost());
 		}
 
 		PutModule(Table);
@@ -879,7 +870,7 @@ class CAdminMod : public CModule {
 			return;
 		}
 
-		PutModule("User " + sUsername + " deleted!");
+		PutModule("User [" + sUsername + "] deleted!");
 		return;
 	}
 
@@ -980,10 +971,8 @@ class CAdminMod : public CModule {
 			return;
 		}
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
-
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("[" + pUser->GetUserName() + "] does not have a network with the name [" + sNetwork + "]");
 			return;
 		}
 
@@ -1019,8 +1008,7 @@ class CAdminMod : public CModule {
 		Table.AddColumn("IRC User");
 		Table.AddColumn("Channels");
 
-		for (unsigned int a = 0; a < vNetworks.size(); a++) {
-			CIRCNetwork* pNetwork = vNetworks[a];
+		for (const CIRCNetwork* pNetwork : vNetworks) {
 			Table.AddRow();
 			Table.SetCell("Network", pNetwork->GetName());
 			if (pNetwork->IsIRCConnected()) {
@@ -1052,9 +1040,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("[" + sUsername + "] does not have a network with the name [" + sNetwork + "]");
 			return;
 		}
 
@@ -1062,6 +1049,33 @@ class CAdminMod : public CModule {
 			PutModule("Added IRC Server [" + sServer + "] for network [" + sNetwork + "] for user [" + pUser->GetUserName() + "].");
 		else
 			PutModule("Could not add IRC server [" + sServer + "] for network [" + sNetwork + "] for user [" + pUser->GetUserName() + "].");
+	}
+
+	void DelServer(const CString& sLine) {
+		CString sUsername = sLine.Token(1);
+		CString sNetwork = sLine.Token(2);
+		CString sServer = sLine.Token(3, true);
+		unsigned short uPort = sLine.Token(4).ToUShort();
+		CString sPass = sLine.Token(5);
+
+		if (sServer.empty()) {
+			PutModule("Usage: DelServer <username> <network> <server>");
+			return;
+		}
+
+		CUser* pUser = FindUser(sUsername);
+		if (!pUser)
+			return;
+
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
+		if (!pNetwork) {
+			return;
+		}
+
+		if (pNetwork->DelServer(sServer, uPort, sPass))
+			PutModule("Deleted IRC Server [" + sServer + "] for network [" + sNetwork + "] for user [" + pUser->GetUserName() + "].");
+		else
+			PutModule("Could not delete IRC server [" + sServer + "] for network [" + sNetwork + "] for user [" + pUser->GetUserName() + "].");
 	}
 
 	void ReconnectUser(const CString& sLine) {
@@ -1079,9 +1093,8 @@ class CAdminMod : public CModule {
 			return;
 		}
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("[" + sUserName + "] does not have a network with the name [" + sNetwork + "]");
 			return;
 		}
 
@@ -1116,9 +1129,8 @@ class CAdminMod : public CModule {
 			return;
 		}
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("[" + sUserName + "] does not have a network with the name [" + sNetwork + "]");
 			return;
 		}
 
@@ -1140,10 +1152,10 @@ class CAdminMod : public CModule {
 		CTable Table;
 		Table.AddColumn("Request");
 		Table.AddColumn("Reply");
-		for (MCString::const_iterator it = msCTCPReplies.begin(); it != msCTCPReplies.end(); ++it) {
+		for (const auto& it : msCTCPReplies) {
 			Table.AddRow();
-			Table.SetCell("Request", it->first);
-			Table.SetCell("Reply", it->second);
+			Table.SetCell("Request", it.first);
+			Table.SetCell("Reply", it.second);
 		}
 
 		if (Table.empty()) {
@@ -1243,7 +1255,7 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		LoadModuleFor(pUser->GetModules(), sModName, sArgs, CModInfo::UserModule, pUser, NULL);
+		LoadModuleFor(pUser->GetModules(), sModName, sArgs, CModInfo::UserModule, pUser, nullptr);
 	}
 
 	void LoadModuleForNetwork(const CString& sLine) {
@@ -1261,9 +1273,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("Network not found");
 			return;
 		}
 
@@ -1319,9 +1330,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("Network not found");
 			return;
 		}
 
@@ -1337,10 +1347,10 @@ class CAdminMod : public CModule {
 			Table.AddColumn("Name");
 			Table.AddColumn("Arguments");
 
-			for (unsigned int b = 0; b < Modules.size(); b++) {
+			for (const CModule* pMod : Modules) {
 				Table.AddRow();
-				Table.SetCell("Name", Modules[b]->GetModName());
-				Table.SetCell("Arguments", Modules[b]->GetArgs());
+				Table.SetCell("Name", pMod->GetModName());
+				Table.SetCell("Arguments", pMod->GetArgs());
 			}
 
 			PutModule(Table);
@@ -1375,9 +1385,8 @@ class CAdminMod : public CModule {
 		if (!pUser)
 			return;
 
-		CIRCNetwork* pNetwork = pUser->FindNetwork(sNetwork);
+		CIRCNetwork* pNetwork = FindNetwork(pUser, sNetwork);
 		if (!pNetwork) {
-			PutModule("Network not found");
 			return;
 		}
 
@@ -1391,7 +1400,7 @@ public:
 		AddCommand("Get",          static_cast<CModCommand::ModCmdFunc>(&CAdminMod::Get),
 			"<variable> [username]",                          "Prints the variable's value for the given or current user");
 		AddCommand("Set",          static_cast<CModCommand::ModCmdFunc>(&CAdminMod::Set),
-			"<variable> <username> <value>",                  "Sets the variable's value for the given user (use $me for the current user)");
+			"<variable> <username> <value>",                  "Sets the variable's value for the given user");
 		AddCommand("GetNetwork",   static_cast<CModCommand::ModCmdFunc>(&CAdminMod::GetNetwork),
 			"<variable> [username] [network]",                "Prints the variable's value for the given network");
 		AddCommand("SetNetwork",   static_cast<CModCommand::ModCmdFunc>(&CAdminMod::SetNetwork),
@@ -1414,6 +1423,8 @@ public:
 			"<old username> <new username>",                  "Clones a user");
 		AddCommand("AddServer",    static_cast<CModCommand::ModCmdFunc>(&CAdminMod::AddServer),
 			"<username> <network> <server>",                  "Adds a new IRC server for the given or current user");
+		AddCommand("DelServer",    static_cast<CModCommand::ModCmdFunc>(&CAdminMod::DelServer),
+			"<username> <network> <server>",                  "Deletes an IRC server from the given or current user");
 		AddCommand("Reconnect",    static_cast<CModCommand::ModCmdFunc>(&CAdminMod::ReconnectUser),
 			"<username> <network>",                           "Cycles the user's IRC server connection");
 		AddCommand("Disconnect",   static_cast<CModCommand::ModCmdFunc>(&CAdminMod::DisconnectUser),

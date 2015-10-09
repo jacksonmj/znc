@@ -7,7 +7,8 @@ AC_DEFUN([AC_PROG_CC], [m4_errprint(__file__:__line__[: Something is trying to u
 dnl Needed for AC_PATH_PROGS_FEATURE_CHECK which was added in 2.62
 AC_PREREQ([2.62])
 dnl Keep the version number in sync with main.h!
-AC_INIT([znc], [1.6.x])
+AC_INIT([znc], [1.7.x])
+LIBZNC_VERSION=1.7
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src/znc.cpp])
 AC_LANG([C++])
@@ -34,14 +35,6 @@ AX_CXX_COMPILE_STDCXX_11([noext], [optional])
 if test x"$HAVE_CXX11" != x1; then
 	AC_MSG_ERROR([Upgrade your compiler. GCC 4.7+ and Clang 3.2+ are known to work.])
 fi
-
-AC_PROG_INSTALL
-AC_PROG_GREP
-AC_PROG_SED
-AC_CANONICAL_HOST
-AC_SYS_LARGEFILE
-ZNC_VISIBILITY
-AC_PATH_PROG([GIT], [git])
 
 appendLib () {
 	if test "$LIBS" != ""; then
@@ -75,32 +68,15 @@ appendLD () {
 	fi
 }
 
-case "${host_os}" in
-	freebsd*)
-		# -D__GNU_LIBRARY__ makes this work on fbsd 4.11
-		appendCXX -I/usr/local/include -D__GNU_LIBRARY__
-		appendLib -L/usr/local/lib -lcompat
-		appendMod -L/usr/local/lib
-	;;
-	solaris*)
-		appendLib -lsocket -lnsl -lresolv
-		ISSUN=1
-	;;
-	cygwin)
-		# We don't want to use -std=gnu++11 instead of -std=c++11, but among other things, -std=c++11 defines __STRICT_ANSI__ which makes cygwin not to compile: undefined references to strerror_r, to fdopen, to strcasecmp, etc (their declarations in system headers are between ifdef)
-		appendCXX -U__STRICT_ANSI__
-		ISCYGWIN=1
-	;;
-	darwin*)
-		ISDARWIN=1
-	;;
-esac
-
+AC_PROG_INSTALL
+AC_PROG_GREP
+AC_PROG_SED
+AC_CANONICAL_HOST
+AC_SYS_LARGEFILE
+ZNC_VISIBILITY
+AC_PATH_PROG([GIT], [git])
 PKG_PROG_PKG_CONFIG()
 
-AC_ARG_WITH( [openssl],
-	AS_HELP_STRING([--with-openssl=DIR], [openssl installation prefix]),
-	[OPENSSL=$withval],)
 AC_ARG_ENABLE( [debug],
 	AS_HELP_STRING([--enable-debug], [enable debugging]),
 	[DEBUG="$enableval"],
@@ -158,9 +134,22 @@ AC_ARG_ENABLE( [poll],
 	AS_HELP_STRING([--disable-poll], [use select() instead of poll()]),
 	[POLL="$enableval"],
 	[POLL="yes"])
+
 AC_ARG_WITH( [gtest],
-	AS_HELP_STRING([--with-gtest=DIR], [Path to directory with src/gtest-all.cc and src/gtest_main.cc files.
-					If not specified, "make test" will download gtest tarball and use it.]))
+	AS_HELP_STRING([--with-gtest=DIR], [Path to directory with src/gtest-all.cc file.
+					If not specified, git submodule will be used.
+					If it is not available either, "make test" will fail.]))
+if test "x$with_gtest" != xno; then
+	AC_SUBST([GTEST_DIR], [$with_gtest])
+fi
+AC_ARG_WITH([gmock],
+	AS_HELP_STRING([--with-gmock=DIR], [Path to directory with src/gmock-all.cc and src/gmock_main.cc files.
+					If not specified, git submodule will be used.
+					If it is not available either, "make test" will fail.]))
+if test "x$with_gmock" != xno; then
+	AC_SUBST([GMOCK_DIR], [$with_gmock])
+fi
+
 
 AC_ARG_WITH([systemdsystemunitdir],
 	AS_HELP_STRING([--with-systemdsystemunitdir=DIR], [Directory for systemd service files]),
@@ -169,31 +158,80 @@ AC_ARG_WITH([systemdsystemunitdir],
 			with_systemdsystemunitdir=$($PKG_CONFIG --variable=systemdsystemunitdir systemd)
 		fi
 	])
-if test "x$with_gtest" != xno; then
-	AC_SUBST([GTEST_DIR], [$with_gtest])
-fi
 if test "x$with_systemdsystemunitdir" != xno; then
 	AC_SUBST([systemdsystemunitdir], [$with_systemdsystemunitdir])
 fi
 AM_CONDITIONAL(HAVE_SYSTEMD, [test -n "$with_systemdsystemunitdir" -a "x$with_systemdsystemunitdir" != xno ])
 
-# In old times needed to define _FORTIFY_SOURCE to 2 ourself.
-# Then GCC started to define it itself to 2. It was ok.
-# But then GCC 4.7 started to define it to 0 or 2 depending on optimization level, and it started to conflict with our define.
-AC_MSG_CHECKING([whether compiler predefines _FORTIFY_SOURCE])
-AC_COMPILE_IFELSE([
-	AC_LANG_PROGRAM([[
-	]], [[
-		#ifndef _FORTIFY_SOURCE
-		#error "Just checking, nothing fatal here"
-		#endif
-	]])
-], [
-	AC_MSG_RESULT([yes])
-], [
-	AC_MSG_RESULT([no])
-	appendCXX "-D_FORTIFY_SOURCE=2"
-])
+case "${host_os}" in
+	freebsd*)
+		# -D__GNU_LIBRARY__ makes this work on fbsd 4.11
+		appendCXX -I/usr/local/include -D__GNU_LIBRARY__
+		appendLib -L/usr/local/lib -lcompat
+		appendMod -L/usr/local/lib
+	;;
+	solaris*)
+		appendLib -lsocket -lnsl -lresolv
+		ISSUN=1
+	;;
+	cygwin)
+		# We don't want to use -std=gnu++11 instead of -std=c++11, but among other things, -std=c++11 defines __STRICT_ANSI__ which makes cygwin not to compile: undefined references to strerror_r, to fdopen, to strcasecmp, etc (their declarations in system headers are between ifdef)
+		appendCXX -U__STRICT_ANSI__
+		ISCYGWIN=1
+	;;
+	darwin*)
+		ISDARWIN=1
+
+		AC_PATH_PROG([BREW], [brew])
+		if test -n "$BREW"; then
+			# add default homebrew paths
+
+			if test "x$HAVE_ICU" != "xno"; then
+				AC_MSG_CHECKING([icu4c via homebrew])
+				icu4c_prefix=`$BREW --prefix icu4c`
+				if test -n "$icu4c_prefix"; then
+					export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$icu4c_prefix/lib/pkgconfig"
+					AC_MSG_RESULT([$icu4c_prefix])
+				else
+					AC_MSG_RESULT([no])
+				fi
+			fi
+
+			if test "x$PYTHON" != "xno"; then
+				brew_python_pc="$PYTHON"
+				# This is duplication of non-darwin python logic below...
+				if test "x$brew_python_pc" = "xyes"; then
+					brew_python_pc="python3"
+				fi
+				AC_MSG_CHECKING([python3 via homebrew])
+				python3_prefix=`$BREW --prefix python3`
+				if test -n "$python3_prefix"; then
+					python3_prefix=`find "$python3_prefix/" -name $brew_python_pc.pc | head -n1`
+					if test -n "$python3_prefix"; then
+						python3_prefix=`dirname "$python3_prefix"`
+						export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$python3_prefix"
+						AC_MSG_RESULT([$python3_prefix])
+					else
+						AC_MSG_RESULT([no $brew_python_pc.pc found])
+					fi
+				else
+					AC_MSG_RESULT([no])
+				fi
+			fi
+
+			if test "x$SSL" != "xno"; then
+				AC_MSG_CHECKING([openssl via homebrew])
+				openssl_prefix=`$BREW --prefix openssl`
+				if test -n "$openssl_prefix"; then
+					export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:$openssl_prefix/lib/pkgconfig"
+					AC_MSG_RESULT([$openssl_prefix])
+				else
+					AC_MSG_RESULT([no])
+				fi
+			fi
+		fi
+	;;
+esac
 
 if test "$DEBUG" != "no"; then
 	appendCXX -ggdb3
@@ -207,6 +245,24 @@ if test "$DEBUG" != "no"; then
 else
 	if test "x$OPTIMIZE" = "xyes"; then
 		appendCXX -O2
+
+		# In old times needed to define _FORTIFY_SOURCE to 2 ourself.
+		# Then GCC started to define it itself to 2. It was ok.
+		# But then GCC 4.7 started to define it to 0 or 2 depending on optimization level, and it started to conflict with our define.
+		AC_MSG_CHECKING([whether compiler predefines _FORTIFY_SOURCE])
+		AC_COMPILE_IFELSE([
+			AC_LANG_PROGRAM([[
+			]], [[
+				#ifndef _FORTIFY_SOURCE
+				#error "Just checking, nothing fatal here"
+				#endif
+			]])
+		], [
+			AC_MSG_RESULT([yes])
+		], [
+			AC_MSG_RESULT([no])
+			appendCXX "-D_FORTIFY_SOURCE=2"
+		])
 	fi
 fi
 
@@ -240,7 +296,7 @@ if test "$POLL" = "yes"; then
 fi
 
 AC_CHECK_LIB( gnugetopt, getopt_long,)
-AC_CHECK_FUNCS([lstat getopt_long getpassphrase])
+AC_CHECK_FUNCS([lstat getopt_long getpassphrase clock_gettime])
 
 # ----- Check for dlopen
 
@@ -293,13 +349,6 @@ fi
 
 SSL_TEXT="$SSL"
 if test "x$SSL" != "xno"; then
-	if test -n "$OPENSSL"; then
-		appendLib -L${OPENSSL}/lib
-		appendLib -L${OPENSSL}/lib64
-		appendCXX -I${OPENSSL}/include
-		PKG_CONFIG_PATH="$OPENSSL/lib/pkgconfig/:$OPENSSL/lib64/pkgconfig/:$PKG_CONFIG_PATH"
-	fi
-
 	old_SSL=$SSL
 	PKG_CHECK_MODULES([openssl], [openssl], [
 		appendLib "$openssl_LIBS"
@@ -331,7 +380,7 @@ if test "x$SSL" != "xno"; then
 			SSL=no
 			SSL_TEXT="no (openssl not usable)"
 		])
-		
+
 	fi
 
 	if test "x$SSL" = "xno" ; then
@@ -429,7 +478,8 @@ if test -z "$ISCYGWIN" ; then
 	appendMod -fPIC
 else
 	# But cygwin does want most of ZNC in a shared lib
-	LIBZNC="libznc.dll"
+	# See https://cygwin.com/ml/cygwin-apps/2015-07/msg00108.html for the reasoning behind the name.
+	LIBZNC="cygznc-${LIBZNC_VERSION}.dll"
 	LIBZNCDIR="$bindir"
 fi
 
@@ -563,7 +613,7 @@ then
 
 	# This will need to be extended in the future, but I don't think
 	# it's a good idea to stuff a shitload of random stuff in here right now
-	for path in $TCL_DIR /usr/lib /usr/lib/tcl8.4 /usr/lib/tcl8.5
+	for path in $TCL_DIR /usr/lib /usr/lib/tcl8.4 /usr/lib/tcl8.5 /usr/lib/tcl8.6
 	do
 		file="${path}/tclConfig.sh"
 		AC_MSG_CHECKING([for ${file}])
@@ -608,8 +658,7 @@ AC_CACHE_CHECK([for GNU make], [ac_cv_path_GNUMAKE], [
 		]], [AC_MSG_ERROR([could not find GNU make])]
 	)
 ])
-GNUMAKE_DIRNAME=`AS_DIRNAME(["$ac_cv_path_GNUMAKE"])`
-GNUMAKE=`echo $ac_cv_path_GNUMAKE | $SED "s%$GNUMAKE_DIRNAME/%%"`
+GNUMAKE=`echo $ac_cv_path_GNUMAKE | $SED "s%.*/%%"`
 
 # this is in the end, for not trying to include it when it doesn't exist yet
 appendCXX "-include znc/zncconfig.h"
@@ -639,6 +688,7 @@ AC_CONFIG_FILES([znc-buildmod])
 AC_CONFIG_FILES([man/Makefile])
 AC_CONFIG_FILES([znc.pc])
 AC_CONFIG_FILES([znc-uninstalled.pc])
+AC_CONFIG_FILES([znc.service])
 AC_CONFIG_FILES([modules/Makefile])
 AC_OUTPUT
 

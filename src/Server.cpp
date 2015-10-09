@@ -16,17 +16,18 @@
 
 #include <znc/Server.h>
 
-CServer::CServer(const CString& sName, unsigned short uPort, const CString& sPass, bool bSSL) {
-	m_sName = sName;
-	m_uPort = (uPort) ? uPort : (unsigned short)6667;
-	m_sPass = sPass;
-	m_bSSL = bSSL;
+CServer::CServer(const CString& sName, unsigned short uPort, const CString& sPass, bool bSSL)
+		: m_sName(sName),
+		  m_uPort((uPort) ? uPort : (unsigned short)6667),
+		  m_sPass(sPass),
+		  m_bSSL(bSSL)
+{
 }
 
 CServer::~CServer() {}
 
 bool CServer::IsValidHostName(const CString& sHostName) {
-	return (!sHostName.empty() && (sHostName.find(' ') == CString::npos));
+	return (!sHostName.empty() && !sHostName.Contains(" "));
 }
 
 const CString& CServer::GetName() const { return m_sName; }

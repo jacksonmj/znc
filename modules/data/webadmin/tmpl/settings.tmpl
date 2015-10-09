@@ -17,6 +17,7 @@
 						    <td>IRC</td>
 						    <td>Web</td>
 						    <td>URIPrefix</td>
+						    <td>Delete</td>
 						</tr>
 					</thead>
 
@@ -50,6 +51,8 @@
 								<input name="ipv6" type="hidden" value="<? VAR IsIPV6 ?>"/>
 								<input type="submit" value="Del"/>
 							</form>
+							<? ELSE ?>
+							<input type="button" disabled="disabled" title="To delete port which you use to access webadmin itself, either connect to webadmin via another port, or do it in IRC (/znc DelPort)" value="Current"/>
 							<? ENDIF ?>
 						</td>
 					</tr>
@@ -57,7 +60,7 @@
 					<tr>
 						<form action="<? VAR URIPrefix TOP ?><? VAR ModPath TOP ?>add_listener" method="post">
 							<? INC _csrf_check.tmpl ?>
-							<td><input name="port" type="number" min="1" max="65535" class="number"/></td>
+							<td><input name="port" type="number" min="1" max="65535" class="number third"/></td>
 							<td><input name="host" type="text" value="*" class="sixth"/></td>
 							<td><div class="checkbox"><input name="ssl" type="checkbox"/></div></td>
 							<td><div class="checkbox"><input name="ipv4" type="checkbox" checked="checked"/></div></td>
@@ -150,14 +153,6 @@
 <? ENDLOOP ?>
 </textarea>
 					<br /><span class="info">"Message of the Day", sent to all ZNC users on connect.</span>
-				</div>
-
-				<div class="subsection twothird">
-					<div class="inputlabel">BindHosts:</div>
-					<textarea name="bindhosts" cols="70" rows="8"><? LOOP BindHostLoop ?><? VAR BindHost ?>
-<? ENDLOOP ?>
-</textarea>
-					<br /><span class="info">One host name or IP entry per line.</span>
 				</div>
 
 			</div>

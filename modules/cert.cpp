@@ -46,7 +46,7 @@ public:
 		AddHelpCommand();
 		AddCommand("delete", static_cast<CModCommand::ModCmdFunc>(&CCertMod::Delete),
 			"", "Delete the current certificate");
-		AddCommand("info", static_cast<CModCommand::ModCmdFunc>(&CCertMod::Info));
+		AddCommand("info", static_cast<CModCommand::ModCmdFunc>(&CCertMod::Info), "", "Show the current certificate");
 	}
 
 	virtual ~CCertMod() {}
@@ -59,7 +59,7 @@ public:
 		return (CFile::Exists(PemFile()));
 	}
 
-	virtual EModRet OnIRCConnecting(CIRCSock *pIRCSock) override {
+	EModRet OnIRCConnecting(CIRCSock *pIRCSock) override {
 		if (HasPemFile()) {
 			pIRCSock->SetPemLocation(PemFile());
 		}
@@ -67,9 +67,9 @@ public:
 		return CONTINUE;
 	}
 
-	virtual CString GetWebMenuTitle() override { return "Certificate"; }
+	CString GetWebMenuTitle() override { return "Certificate"; }
 
-	virtual bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		if (sPageName == "index") {
 			Tmpl["Cert"] = CString(HasPemFile());
 			return true;

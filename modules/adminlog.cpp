@@ -20,13 +20,14 @@
 #include <znc/User.h>
 
 #include <syslog.h>
+#include <time.h>
 
 class CAdminLogMod : public CModule {
 public:
 	MODCONSTRUCTOR(CAdminLogMod) {
 		AddHelpCommand();
 		AddCommand("Show", static_cast<CModCommand::ModCmdFunc>(&CAdminLogMod::OnShowCommand), "", "Show the logging target");
-		AddCommand("Target", static_cast<CModCommand::ModCmdFunc>(&CAdminLogMod::OnTargetCommand), "<file|syslog|both>", "Set the logging target");
+		AddCommand("Target", static_cast<CModCommand::ModCmdFunc>(&CAdminLogMod::OnTargetCommand), "<file|syslog|both> [path]", "Set the logging target");
 		openlog("znc", LOG_PID, LOG_DAEMON);
 	}
 
@@ -35,7 +36,7 @@ public:
 		closelog();
 	}
 
-	virtual bool OnLoad(const CString & sArgs, CString & sMessage) override {
+	bool OnLoad(const CString & sArgs, CString & sMessage) override {
 		CString sTarget = GetNV("target");
 		if (sTarget.Equals("syslog"))
 			m_eLogMode = LOG_TO_SYSLOG;
@@ -46,22 +47,22 @@ public:
 		else
 			m_eLogMode = LOG_TO_FILE;
 
-		m_sLogFile = GetSavePath() + "/znc.log";
+		SetLogFilePath(GetNV("path"));
 
 		Log("Logging started. ZNC PID[" + CString(getpid()) + "] UID/GID[" + CString(getuid()) + ":" + CString(getgid()) + "]");
 		return true;
 	}
 
-	virtual void OnIRCConnected() override {
+	void OnIRCConnected() override {
 		Log("[" + GetUser()->GetUserName() + "/" + GetNetwork()->GetName() + "] connected to IRC: " + GetNetwork()->GetCurrentServer()->GetName());
 	}
 
-	virtual void OnIRCDisconnected() override {
+	void OnIRCDisconnected() override {
 		Log("[" + GetUser()->GetUserName() + "/" + GetNetwork()->GetName() + "] disconnected from IRC");
 	}
 
-	virtual EModRet OnRaw(CString& sLine) override {
-		if (sLine.Equals("ERROR ", false, 6)) {
+	EModRet OnRaw(CString& sLine) override {
+		if (sLine.StartsWith("ERROR ")) {
 			//ERROR :Closing Link: nick[24.24.24.24] (Excess Flood)
 			//ERROR :Closing Link: nick[24.24.24.24] Killer (Local kill by Killer (reason))
 			CString sError(sLine.substr(6));
@@ -73,16 +74,33 @@ public:
 		return CONTINUE;
         }
 
-	virtual void OnClientLogin() override {
+	void OnClientLogin() override {
 		Log("[" + GetUser()->GetUserName() + "] connected to ZNC from " + GetClient()->GetRemoteIP());
 	}
 
-	virtual void OnClientDisconnect() override {
+	void OnClientDisconnect() override {
 		Log("[" + GetUser()->GetUserName() + "] disconnected from ZNC from " + GetClient()->GetRemoteIP());
 	}
 
-	virtual void OnFailedLogin(const CString& sUsername, const CString& sRemoteIP) override {
+	void OnFailedLogin(const CString& sUsername, const CString& sRemoteIP) override {
 		Log("[" + sUsername + "] failed to login from " + sRemoteIP, LOG_WARNING);
+	}
+
+	void SetLogFilePath(CString sPath) {
+		if (sPath.empty()) {
+			sPath = GetSavePath() + "/znc.log";
+		}
+
+		CFile LogFile(sPath);
+		CString sLogDir = LogFile.GetDir();
+		struct stat ModDirInfo;
+		CFile::GetInfo(GetSavePath(), ModDirInfo);
+		if (!CFile::Exists(sLogDir)) {
+			CDir::MakeDir(sLogDir, ModDirInfo.st_mode);
+		}
+
+		m_sLogFile = sPath;
+		SetNV("path", sPath);
 	}
 
 	void Log(CString sLine, int iPrio = LOG_INFO) {
@@ -107,7 +125,7 @@ public:
 		}
 	}
 
-	virtual void OnModCommand(const CString& sCommand) override {
+	void OnModCommand(const CString& sCommand) override {
 		if (!GetUser()->IsAdmin()) {
 			PutModule("Access denied");
 		} else {
@@ -116,14 +134,14 @@ public:
 	}
 
 	void OnTargetCommand(const CString& sCommand) {
-		CString sArg = sCommand.Token(1, true);
+		CString sArg = sCommand.Token(1, false);
 		CString sTarget;
 		CString sMessage;
 		LogMode mode;
 
 		if (sArg.Equals("file")) {
 			sTarget = "file";
-			sMessage = "Now only logging to file";
+			sMessage = "Now logging to file";
 			mode = LOG_TO_FILE;
 		} else if (sArg.Equals("syslog")) {
 			sTarget = "syslog";
@@ -131,15 +149,21 @@ public:
 			mode = LOG_TO_SYSLOG;
 		} else if (sArg.Equals("both")) {
 			sTarget = "both";
-			sMessage = "Now logging to file and syslog";
+			sMessage = "Now logging to syslog and file";
 			mode = LOG_TO_BOTH;
 		} else {
 			if (sArg.empty()) {
-				PutModule("Usage: Target <file|syslog|both>");
+				PutModule("Usage: Target <file|syslog|both> [path]");
 			} else {
 				PutModule("Unknown target");
 			}
 			return;
+		}
+
+		if (mode != LOG_TO_SYSLOG) {
+			CString sPath = sCommand.Token(2, true);
+			SetLogFilePath(sPath);
+			sMessage += " [" + sPath + "]";
 		}
 
 		Log(sMessage);

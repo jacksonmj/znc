@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef _ZNC_H
-#define _ZNC_H
+#ifndef ZNC_H
+#define ZNC_H
 
 #include <znc/zncconfig.h>
 #include <znc/Client.h>
@@ -37,11 +37,15 @@ public:
 	CZNC();
 	~CZNC();
 
+	CZNC(const CZNC&) = delete;
+	CZNC& operator=(const CZNC&) = delete;
+
 	enum ConfigState {
 		ECONFIG_NOTHING,
 		ECONFIG_NEED_REHASH,
 		ECONFIG_NEED_WRITE,
-		ECONFIG_NEED_VERBOSE_WRITE
+		ECONFIG_NEED_VERBOSE_WRITE,
+		ECONFIG_NEED_QUIT,  // Not really config...
 	};
 
 	void DeleteUsers();
@@ -64,14 +68,17 @@ public:
 	static CString GetTag(bool bIncludeVersion = true, bool bHTML = false);
 	static CString GetCompileOptionsString();
 	CString GetUptime() const;
-	void ClearBindHosts();
-	bool AddBindHost(const CString& sHost);
-	bool RemBindHost(const CString& sHost);
+	/** @deprecated Since 1.7.0. List of allowed bind hosts was a flawed design. */
+	void ClearBindHosts() { }
+	/** @deprecated Since 1.7.0. List of allowed bind hosts was a flawed design. */
+	bool AddBindHost(const CString& sHost) { return false; }
+	/** @deprecated Since 1.7.0. List of allowed bind hosts was a flawed design. */
+	bool RemBindHost(const CString& sHost) { return false; }
 	void ClearTrustedProxies();
 	bool AddTrustedProxy(const CString& sHost);
 	bool RemTrustedProxy(const CString& sHost);
 	void Broadcast(const CString& sMessage, bool bAdminOnly = false,
-			CUser* pSkipUser = NULL, CClient* pSkipClient = NULL);
+			CUser* pSkipUser = nullptr, CClient* pSkipClient = nullptr);
 	void AddBytesRead(unsigned long long u) { m_uBytesRead += u; }
 	void AddBytesWritten(unsigned long long u) { m_uBytesWritten += u; }
 	unsigned long long BytesRead() const { return m_uBytesRead; }
@@ -86,6 +93,7 @@ public:
 	// generated through ZNC.
 	TrafficStatsMap GetTrafficStats(TrafficStatsPair &Users,
 			TrafficStatsPair &ZNC, TrafficStatsPair &Total);
+	TrafficStatsMap GetNetworkTrafficStats(const CString& sUsername, TrafficStatsPair& Total);
 
 	// Authenticate a user.
 	// The result is passed back via callbacks to CAuthBase.
@@ -101,6 +109,9 @@ public:
 	void SetProtectWebSessions(bool b) { m_bProtectWebSessions = b; }
 	void SetHideVersion(bool b) { m_bHideVersion = b; }
 	void SetConnectDelay(unsigned int i);
+	void SetSSLCiphers(const CString& sCiphers) { m_sSSLCiphers = sCiphers; }
+	bool SetSSLProtocols(const CString& sProtocols);
+	void SetSSLCertFile(const CString& sFile) { m_sSSLCertFile = sFile; }
 	// !Setters
 
 	// Getters
@@ -119,6 +130,7 @@ public:
 	CString GetPemLocation() const;
 	const CString& GetConfigFile() const { return m_sConfigFile; }
 	bool WritePemFile();
+	/** @deprecated Since 1.7.0. List of allowed bind hosts was a flawed design. */
 	const VCString& GetBindHosts() const { return m_vsBindHosts; }
 	const VCString& GetTrustedProxies() const { return m_vsTrustedProxies; }
 	const std::vector<CListener*>& GetListeners() const { return m_vpListeners; }
@@ -130,7 +142,10 @@ public:
 	bool GetProtectWebSessions() const { return m_bProtectWebSessions; }
 	bool GetHideVersion() const { return m_bHideVersion; }
 	CString GetSSLCiphers() const { return m_sSSLCiphers; }
+	CString GetSSLProtocols() const { return m_sSSLProtocols; }
 	Csock::EDisableProtocol GetDisabledSSLProtocols() const { return static_cast<Csock::EDisableProtocol>(m_uDisabledSSLProtocols); }
+	CString GetSSLCertFile() const { return m_sSSLCertFile; }
+	static VCString GetAvailableSSLProtocols();
 	// !Getters
 
 	// Static allocator
@@ -151,7 +166,7 @@ public:
 	bool UpdateModule(const CString &sModule);
 
 	bool DeleteUser(const CString& sUsername);
-	bool AddUser(CUser* pUser, CString& sErrorRet);
+	bool AddUser(CUser* pUser, CString& sErrorRet, bool bStartup = false);
 	const std::map<CString,CUser*> & GetUserMap() const { return(m_msUsers); }
 
 	// Listener yummy
@@ -189,8 +204,13 @@ public:
 
 private:
 	CFile* InitPidFile();
-	bool DoRehash(CString& sError);
-	// Returns true if something was done
+
+	bool ReadConfig(CConfig& config, CString& sError);
+	bool LoadGlobal(CConfig& config, CString& sError);
+	bool LoadUsers(CConfig& config, CString& sError);
+	bool LoadListeners(CConfig& config, CString& sError);
+	void UnloadRemovedModules(const MCString& msModules);
+
 	bool HandleUserDeletion();
 	CString MakeConfigHeader();
 	bool AddListener(const CString& sLine, CString& sError);
@@ -215,7 +235,7 @@ protected:
 	CString                m_sSSLCertFile;
 	CString                m_sSSLCiphers;
 	CString                m_sSSLProtocols;
-	VCString               m_vsBindHosts;
+	VCString               m_vsBindHosts; // TODO: remove (deprecated in 1.7.0)
 	VCString               m_vsTrustedProxies;
 	VCString               m_vsMotd;
 	CFile*                 m_pLockFile;
@@ -234,4 +254,4 @@ protected:
 	bool                   m_bHideVersion;
 };
 
-#endif // !_ZNC_H
+#endif // !ZNC_H

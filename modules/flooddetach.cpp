@@ -16,6 +16,7 @@
 
 #include <znc/Chan.h>
 #include <znc/IRCNetwork.h>
+#include <time.h>
 
 using std::map;
 
@@ -70,7 +71,7 @@ public:
 
 	void Cleanup() {
 		Limits::iterator it;
-		time_t now = time(NULL);
+		time_t now = time(nullptr);
 
 		for (it = m_chans.begin(); it != m_chans.end(); ++it) {
 			// The timeout for this channel did not expire yet?
@@ -106,7 +107,7 @@ public:
 
 	void Message(CChan& Channel) {
 		Limits::iterator it;
-		time_t now = time(NULL);
+		time_t now = time(nullptr);
 
 		// First: Clean up old entries and reattach where necessary
 		Cleanup();
@@ -171,6 +172,12 @@ public:
 	EModRet OnTopic(CNick& Nick, CChan& Channel, CString& sTopic) override {
 		Message(Channel);
 		return CONTINUE;
+	}
+
+	void OnNick(const CNick& Nick, const CString& sNewNick, const std::vector<CChan*>& vChans) override {
+		for (CChan* pChan : vChans) {
+			Message(*pChan);
+		}
 	}
 
 	void ShowCommand(const CString& sLine) {

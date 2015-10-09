@@ -16,6 +16,7 @@
 
 #include <random>
 
+#include <znc/Socket.h>
 #include <znc/User.h>
 #include <znc/IRCNetwork.h>
 #include <znc/SSLVerifyHost.h>
@@ -39,7 +40,7 @@ static CString ZNC_DefaultCipher() {
 }
 #endif
 
-CZNCSock::CZNCSock(int timeout) : Csock(timeout) {
+CZNCSock::CZNCSock(int timeout) : Csock(timeout), m_HostToVerifySSL(""), m_ssTrustedFingerprints(), m_ssCertVerificationErrors() {
 #ifdef HAVE_LIBSSL
 	DisableSSLCompression();
 	FollowSSLCipherServerPreference();
@@ -52,7 +53,7 @@ CZNCSock::CZNCSock(int timeout) : Csock(timeout) {
 #endif
 }
 
-CZNCSock::CZNCSock(const CString& sHost, u_short port, int timeout) : Csock(sHost, port, timeout) {
+CZNCSock::CZNCSock(const CString& sHost, u_short port, int timeout) : Csock(sHost, port, timeout), m_HostToVerifySSL(""), m_ssTrustedFingerprints(), m_ssCertVerificationErrors() {
 #ifdef HAVE_LIBSSL
 	DisableSSLCompression();
 	FollowSSLCipherServerPreference();
@@ -68,7 +69,7 @@ unsigned int CSockManager::GetAnonConnectionCount(const CString &sIP) const {
 		Csock *pSock = *it;
 		// Logged in CClients have "USR::<username>" as their sockname
 		if (pSock->GetType() == Csock::INBOUND && pSock->GetRemoteIP() == sIP
-				&& pSock->GetSockName().Left(5) != "USR::") {
+				&& !pSock->GetSockName().StartsWith("USR::")) {
 			ret++;
 		}
 	}
@@ -158,7 +159,7 @@ public:
 		Add(CThreadPool::Get().getReadFD(), ECT_Read);
 	}
 
-	virtual bool FDsThatTriggered(const std::map<int, short>& miiReadyFds) {
+	bool FDsThatTriggered(const std::map<int, short>& miiReadyFds) override {
 		if (miiReadyFds.find(CThreadPool::Get().getReadFD())->second) {
 			CThreadPool::Get().handlePipeReadable();
 		}
@@ -177,7 +178,7 @@ void CSockManager::CDNSJob::runThread() {
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_flags = AI_ADDRCONFIG;
-		iRes = getaddrinfo(sHostname.c_str(), NULL, &hints, &aiResult);
+		iRes = getaddrinfo(sHostname.c_str(), nullptr, &hints, &aiResult);
 		if (EAGAIN != iRes) {
 			break;
 		}
@@ -195,9 +196,9 @@ void CSockManager::CDNSJob::runMain() {
 	if (0 != this->iRes) {
 		DEBUG("Error in threaded DNS: " << gai_strerror(this->iRes));
 		if (this->aiResult) {
-			DEBUG("And aiResult is not NULL...");
+			DEBUG("And aiResult is not nullptr...");
 		}
-		this->aiResult = NULL; // just for case. Maybe to call freeaddrinfo()?
+		this->aiResult = nullptr; // just for case. Maybe to call freeaddrinfo()?
 	}
 	pManager->SetTDNSThreadFinished(this->task, this->bBind, this->aiResult);
 }
@@ -208,8 +209,6 @@ void CSockManager::StartTDNSThread(TDNSTask* task, bool bBind) {
 	arg->sHostname = sHostname;
 	arg->task      = task;
 	arg->bBind     = bBind;
-	arg->iRes      = 0;
-	arg->aiResult  = NULL;
 	arg->pManager  = this;
 
 	CThreadPool::Get().addJob(arg);
@@ -258,7 +257,7 @@ void CSockManager::SetTDNSThreadFinished(TDNSTask* task, bool bBind, addrinfo* a
 	SCString ssTargets6;
 	for (addrinfo* ai = task->aiTarget; ai; ai = ai->ai_next) {
 		char s[INET6_ADDRSTRLEN] = {};
-		getnameinfo(ai->ai_addr, ai->ai_addrlen, s, sizeof(s), NULL, 0, NI_NUMERICHOST);
+		getnameinfo(ai->ai_addr, ai->ai_addrlen, s, sizeof(s), nullptr, 0, NI_NUMERICHOST);
 		switch (ai->ai_family) {
 			case AF_INET:
 				ssTargets4.insert(s);
@@ -274,7 +273,7 @@ void CSockManager::SetTDNSThreadFinished(TDNSTask* task, bool bBind, addrinfo* a
 	SCString ssBinds6;
 	for (addrinfo* ai = task->aiBind; ai; ai = ai->ai_next) {
 		char s[INET6_ADDRSTRLEN] = {};
-		getnameinfo(ai->ai_addr, ai->ai_addrlen, s, sizeof(s), NULL, 0, NI_NUMERICHOST);
+		getnameinfo(ai->ai_addr, ai->ai_addrlen, s, sizeof(s), nullptr, 0, NI_NUMERICHOST);
 		switch (ai->ai_family) {
 			case AF_INET:
 				ssBinds4.insert(s);
@@ -363,13 +362,9 @@ void CSockManager::Connect(const CString& sHostname, u_short iPort, const CStrin
 	task->bSSL        = bSSL;
 	task->sBindhost   = sBindHost;
 	task->pcSock      = pcSock;
-	task->aiTarget    = NULL;
-	task->aiBind      = NULL;
-	task->bDoneTarget = false;
 	if (sBindHost.empty()) {
 		task->bDoneBind = true;
 	} else {
-		task->bDoneBind = false;
 		StartTDNSThread(task, true);
 	}
 	StartTDNSThread(task, false);
@@ -398,30 +393,33 @@ void CSockManager::FinishConnect(const CString& sHostname, u_short iPort, const 
 
 
 /////////////////// CSocket ///////////////////
-CSocket::CSocket(CModule* pModule) : CZNCSock() {
-	m_pModule = pModule;
+CSocket::CSocket(CModule* pModule) : CZNCSock(), m_pModule(pModule) {
 	if (m_pModule) m_pModule->AddSocket(this);
 	EnableReadLine();
 	SetMaxBufferThreshold(10240);
 }
 
-CSocket::CSocket(CModule* pModule, const CString& sHostname, unsigned short uPort, int iTimeout) : CZNCSock(sHostname, uPort, iTimeout) {
-	m_pModule = pModule;
+CSocket::CSocket(CModule* pModule, const CString& sHostname, unsigned short uPort, int iTimeout) : CZNCSock(sHostname, uPort, iTimeout), m_pModule(pModule) {
 	if (m_pModule) m_pModule->AddSocket(this);
 	EnableReadLine();
 	SetMaxBufferThreshold(10240);
 }
 
 CSocket::~CSocket() {
-	CUser *pUser = NULL;
+	CUser *pUser = nullptr;
+	CIRCNetwork* pNetwork = nullptr;
 
-	// CWebSock could cause us to have a NULL pointer here
+	// CWebSock could cause us to have a nullptr pointer here
 	if (m_pModule) {
 		pUser = m_pModule->GetUser();
+		pNetwork = m_pModule->GetNetwork();
 		m_pModule->UnlinkSocket(this);
 	}
 
-	if (pUser && m_pModule && (m_pModule->GetType() != CModInfo::GlobalModule)) {
+	if (pNetwork && m_pModule && (m_pModule->GetType() == CModInfo::NetworkModule)) {
+		pNetwork->AddBytesWritten(GetBytesWritten());
+		pNetwork->AddBytesRead(GetBytesRead());
+	} else if (pUser && m_pModule && (m_pModule->GetType() == CModInfo::UserModule)) {
 		pUser->AddBytesWritten(GetBytesWritten());
 		pUser->AddBytesRead(GetBytesRead());
 	} else {

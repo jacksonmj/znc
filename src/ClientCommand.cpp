@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <znc/Client.h>
 #include <znc/Chan.h>
 #include <znc/FileUtils.h>
 #include <znc/IRCNetwork.h>
@@ -89,23 +90,41 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("Ident");
 		Table.AddColumn("Host");
 
-		for (map<CString,CNick>::const_iterator a = msNicks.begin(); a != msNicks.end(); ++a) {
+		for (const auto& it : msNicks) {
 			Table.AddRow();
 
 			for (unsigned int b = 0; b < sPerms.size(); b++) {
-				if (a->second.HasPerm(sPerms[b])) {
+				if (it.second.HasPerm(sPerms[b])) {
 					CString sPerm;
 					sPerm += sPerms[b];
 					Table.SetCell(sPerm, sPerm);
 				}
 			}
 
-			Table.SetCell("Nick", a->second.GetNick());
-			Table.SetCell("Ident", a->second.GetIdent());
-			Table.SetCell("Host", a->second.GetHost());
+			Table.SetCell("Nick", it.second.GetNick());
+			Table.SetCell("Ident", it.second.GetIdent());
+			Table.SetCell("Host", it.second.GetHost());
 		}
 
 		PutStatus(Table);
+	} else if (sCommand.Equals("ATTACH")) {
+		if (!m_pNetwork) {
+			PutStatus("You must be connected with a network to use this command");
+			return;
+		}
+
+		CString sPatterns = sLine.Token(1, true);
+
+		if (sPatterns.empty()) {
+			PutStatus("Usage: Attach <#chans|queries>");
+			return;
+		}
+
+		set<CChan*> sChans = MatchChans(sPatterns);
+		unsigned int uAttachedChans = AttachChans(sChans);
+
+		PutStatus("There were [" + CString(sChans.size()) + "] channels  matching [" + sPatterns + "]");
+		PutStatus("Attached [" + CString(uAttachedChans) + "] channels");
 	} else if (sCommand.Equals("DETACH")) {
 		if (!m_pNetwork) {
 			PutStatus("You must be connected with a network to use this command");
@@ -119,23 +138,8 @@ void CClient::UserCommand(CString& sLine) {
 			return;
 		}
 
-		VCString vsChans;
-		sPatterns.Replace(",", " ");
-		sPatterns.Split(" ", vsChans, false, "", "", true, true);
-
-		set<CChan*> sChans;
-		for (const CString& sChan : vsChans) {
-			vector<CChan*> vChans = m_pNetwork->FindChans(sChan);
-			sChans.insert(vChans.begin(), vChans.end());
-		}
-
-		unsigned int uDetached = 0;
-		for (CChan* pChan : sChans) {
-			if (pChan->IsDetached())
-				continue;
-			uDetached++;
-			pChan->DetachUser();
-		}
+		set<CChan*> sChans = MatchChans(sPatterns);
+		unsigned int uDetached = DetachChans(sChans);
 
 		PutStatus("There were [" + CString(sChans.size()) + "] channels matching [" + sPatterns + "]");
 		PutStatus("Detached [" + CString(uDetached) + "] channels");
@@ -190,13 +194,13 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("Network");
 		Table.AddColumn("Identifier");
 
-		for (unsigned int a = 0; a < vClients.size(); a++) {
+		for (const CClient* pClient : vClients) {
 			Table.AddRow();
-			Table.SetCell("Host", vClients[a]->GetRemoteIP());
-			if (vClients[a]->GetNetwork()) {
-				Table.SetCell("Network", vClients[a]->GetNetwork()->GetName());
+			Table.SetCell("Host", pClient->GetRemoteIP());
+			if (pClient->GetNetwork()) {
+				Table.SetCell("Network", pClient->GetNetwork()->GetName());
 			}
-			Table.SetCell("Identifier", vClients[a]->GetIdentifier());
+			Table.SetCell("Identifier", pClient->GetIdentifier());
 		}
 
 		PutStatus(Table);
@@ -207,11 +211,11 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("Networks");
 		Table.AddColumn("Clients");
 
-		for (map<CString, CUser*>::const_iterator it = msUsers.begin(); it != msUsers.end(); ++it) {
+		for (const auto& it : msUsers) {
 			Table.AddRow();
-			Table.SetCell("Username", it->first);
-			Table.SetCell("Networks", CString(it->second->GetNetworks().size()));
-			Table.SetCell("Clients", CString(it->second->GetAllClients().size()));
+			Table.SetCell("Username", it.first);
+			Table.SetCell("Networks", CString(it.second->GetNetworks().size()));
+			Table.SetCell("Clients", CString(it.second->GetAllClients().size()));
 		}
 
 		PutStatus(Table);
@@ -226,18 +230,17 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("IRC User");
 		Table.AddColumn("Channels");
 
-		for (map<CString, CUser*>::const_iterator it = msUsers.begin(); it != msUsers.end(); ++it) {
+		for (const auto& it : msUsers) {
 			Table.AddRow();
-			Table.SetCell("Username", it->first);
+			Table.SetCell("Username", it.first);
 			Table.SetCell("Network", "N/A");
-			Table.SetCell("Clients", CString(it->second->GetUserClients().size()));
+			Table.SetCell("Clients", CString(it.second->GetUserClients().size()));
 
-			const vector<CIRCNetwork*>& vNetworks = it->second->GetNetworks();
+			const vector<CIRCNetwork*>& vNetworks = it.second->GetNetworks();
 
-			for (size_t a = 0; a < vNetworks.size(); ++a) {
-				CIRCNetwork* pNetwork = vNetworks[a];
+			for (const CIRCNetwork* pNetwork : vNetworks) {
 				Table.AddRow();
-				if (a == vNetworks.size() - 1) {
+				if (pNetwork == vNetworks.back()) {
 					Table.SetCell("Username", "`-");
 				} else {
 					Table.SetCell("Username", "|-");
@@ -313,7 +316,7 @@ void CClient::UserCommand(CString& sLine) {
 
 		CString sArgs = sLine.Token(1, true);
 		sArgs.Trim();
-		CServer *pServer = NULL;
+		CServer *pServer = nullptr;
 
 		if (!sArgs.empty()) {
 			pServer = m_pNetwork->FindServer(sArgs);
@@ -371,15 +374,7 @@ void CClient::UserCommand(CString& sLine) {
 		if (sPatterns.empty()) {
 			PutStatus("Usage: EnableChan <#chans>");
 		} else {
-			VCString vsChans;
-			sPatterns.Replace(",", " ");
-			sPatterns.Split(" ", vsChans, false, "", "", true, true);
-
-			set<CChan*> sChans;
-			for (const CString& sChan : vsChans) {
-				vector<CChan*> vChans = m_pNetwork->FindChans(sChan);
-				sChans.insert(vChans.begin(), vChans.end());
-			}
+			set<CChan*> sChans = MatchChans(sPatterns);
 
 			unsigned int uEnabled = 0;
 			for (CChan* pChan : sChans) {
@@ -403,15 +398,7 @@ void CClient::UserCommand(CString& sLine) {
 		if (sPatterns.empty()) {
 			PutStatus("Usage: DisableChan <#chans>");
 		} else {
-			VCString vsChans;
-			sPatterns.Replace(",", " ");
-			sPatterns.Split(" ", vsChans, false, "", "", true, true);
-
-			set<CChan*> sChans;
-			for (const CString& sChan : vsChans) {
-				vector<CChan*> vChans = m_pNetwork->FindChans(sChan);
-				sChans.insert(vChans.begin(), vChans.end());
-			}
+			set<CChan*> sChans = MatchChans(sPatterns);
 
 			unsigned int uDisabled = 0;
 			for (CChan* pChan : sChans) {
@@ -424,13 +411,73 @@ void CClient::UserCommand(CString& sLine) {
 			PutStatus("There were [" + CString(sChans.size()) + "] channels matching [" + sPatterns + "]");
 			PutStatus("Disabled [" + CString(uDisabled) + "] channels");
 		}
+	} else if (sCommand.Equals("SHOWCHAN")) {
+		if (!m_pNetwork) {
+			PutStatus("You must be connected with a network to use this command");
+			return;
+		}
+
+		CString sChan = sLine.Token(1, true);
+		if (sChan.empty()) {
+			PutStatus("Usage: ShowChan <#chan>");
+			return;
+		}
+
+		CChan* pChan = m_pNetwork->FindChan(sChan);
+		if (!pChan) {
+			PutStatus("No such channel [" + sChan + "]");
+			return;
+		}
+		sChan = pChan->GetPermStr() + pChan->GetName();
+		CString sStatus = pChan->IsOn() ? (pChan->IsDetached() ? "Detached" : "Joined") : (pChan->IsDisabled() ? "Disabled" : "Trying");
+
+		CTable Table;
+		Table.AddColumn(sChan);
+		Table.AddColumn(sStatus);
+
+		Table.AddRow();
+		Table.SetCell(sChan, "InConfig");
+		Table.SetCell(sStatus, CString(pChan->InConfig() ? "yes" : "no"));
+
+		Table.AddRow();
+		Table.SetCell(sChan, "Buffer");
+		Table.SetCell(sStatus, CString(pChan->GetBuffer().Size()) + "/" + CString(pChan->GetBufferCount()) + CString(pChan->HasBufferCountSet() ? "" : " (default)"));
+
+		Table.AddRow();
+		Table.SetCell(sChan, "AutoClearChanBuffer");
+		Table.SetCell(sStatus, CString(pChan->AutoClearChanBuffer() ? "yes" : "no") + CString(pChan->HasAutoClearChanBufferSet() ? "" : " (default)"));
+
+		if (pChan->IsOn()) {
+			Table.AddRow();
+			Table.SetCell(sChan, "Topic");
+			Table.SetCell(sStatus, pChan->GetTopic());
+
+			Table.AddRow();
+			Table.SetCell(sChan, "Modes");
+			Table.SetCell(sStatus, pChan->GetModeString());
+
+			Table.AddRow();
+			Table.SetCell(sChan, "Users");
+
+			VCString vsUsers;
+			vsUsers.push_back("All: " + CString(pChan->GetNickCount()));
+
+			CIRCSock* pIRCSock = m_pNetwork->GetIRCSock();
+			const CString& sPerms = pIRCSock ? pIRCSock->GetPerms() : "";
+			map<char, unsigned int> mPerms = pChan->GetPermCounts();
+			for (char cPerm : sPerms) {
+				vsUsers.push_back(CString(cPerm) + ": " + CString(mPerms[cPerm]));
+			}
+			Table.SetCell(sStatus, CString(", ").Join(vsUsers.begin(), vsUsers.end()));
+		}
+
+		PutStatus(Table);
 	} else if (sCommand.Equals("LISTCHANS")) {
 		if (!m_pNetwork) {
 			PutStatus("You must be connected with a network to use this command");
 			return;
 		}
 
-		CUser* pUser = m_pUser;
 		CIRCNetwork* pNetwork = m_pNetwork;
 
 		const CString sNick = sLine.Token(1);
@@ -442,7 +489,7 @@ void CClient::UserCommand(CString& sLine) {
 				return;
 			}
 
-			pUser = CZNC::Get().FindUser(sNick);
+			CUser* pUser = CZNC::Get().FindUser(sNick);
 
 			if (!pUser) {
 				PutStatus("No such user [" + sNick + "]");
@@ -457,8 +504,6 @@ void CClient::UserCommand(CString& sLine) {
 		}
 
 		const vector<CChan*>& vChans = pNetwork->GetChans();
-		CIRCSock* pIRCSock = pNetwork->GetIRCSock();
-		const CString& sPerms = (pIRCSock) ? pIRCSock->GetPerms() : "";
 
 		if (vChans.empty()) {
 			PutStatus("There are no channels defined.");
@@ -468,37 +513,14 @@ void CClient::UserCommand(CString& sLine) {
 		CTable Table;
 		Table.AddColumn("Name");
 		Table.AddColumn("Status");
-		Table.AddColumn("Conf");
-		Table.AddColumn("Buf");
-		Table.AddColumn("Clear");
-		Table.AddColumn("Modes");
-		Table.AddColumn("Users");
-
-		for (unsigned int p = 0; p < sPerms.size(); p++) {
-			CString sPerm;
-			sPerm += sPerms[p];
-			Table.AddColumn(sPerm);
-		}
 
 		unsigned int uNumDetached = 0, uNumDisabled = 0,
 			uNumJoined = 0;
 
-		for (unsigned int a = 0; a < vChans.size(); a++) {
-			const CChan* pChan = vChans[a];
+		for (const CChan *pChan : vChans) {
 			Table.AddRow();
 			Table.SetCell("Name", pChan->GetPermStr() + pChan->GetName());
-			Table.SetCell("Status", ((vChans[a]->IsOn()) ? ((vChans[a]->IsDetached()) ? "Detached" : "Joined") : ((vChans[a]->IsDisabled()) ? "Disabled" : "Trying")));
-			Table.SetCell("Conf", CString((pChan->InConfig()) ? "yes" : ""));
-			Table.SetCell("Buf", CString((pChan->HasBufferCountSet()) ? "*" : "") + CString(pChan->GetBufferCount()));
-			Table.SetCell("Clear", CString((pChan->HasAutoClearChanBufferSet()) ? "*" : "") + CString((pChan->AutoClearChanBuffer()) ? "yes" : ""));
-			Table.SetCell("Modes", pChan->GetModeString());
-			Table.SetCell("Users", CString(pChan->GetNickCount()));
-
-			map<char, unsigned int> mPerms = pChan->GetPermCounts();
-			for (unsigned int b = 0; b < sPerms.size(); b++) {
-				char cPerm = sPerms[b];
-				Table.SetCell(CString(cPerm), CString(mPerms[cPerm]));
-			}
+			Table.SetCell("Status", ((pChan->IsOn()) ? ((pChan->IsDetached()) ? "Detached" : "Joined") : ((pChan->IsDisabled()) ? "Disabled" : "Trying")));
 
 			if(pChan->IsDetached()) uNumDetached++;
 			if(pChan->IsOn()) uNumJoined++;
@@ -541,7 +563,7 @@ void CClient::UserCommand(CString& sLine) {
 		}
 
 		if (m_pNetwork && m_pNetwork->GetName().Equals(sNetwork)) {
-			SetNetwork(NULL);
+			SetNetwork(nullptr);
 		}
 
 		if (m_pUser->DeleteNetwork(sNetwork)) {
@@ -571,8 +593,7 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("IRC User");
 		Table.AddColumn("Channels");
 
-		for (size_t a = 0; a < vNetworks.size(); a++) {
-			CIRCNetwork* pNetwork = vNetworks[a];
+		for (const CIRCNetwork* pNetwork : vNetworks) {
 			Table.AddRow();
 			Table.SetCell("Network", pNetwork->GetName());
 			if (pNetwork->IsIRCConnected()) {
@@ -636,19 +657,19 @@ void CClient::UserCommand(CString& sLine) {
 		}
 
 		const CModules& vMods = pOldNetwork->GetModules();
-		for (CModules::const_iterator i = vMods.begin(); i != vMods.end(); ++i) {
-			CString sOldModPath = pOldNetwork->GetNetworkPath() + "/moddata/" + (*i)->GetModName();
-			CString sNewModPath = pNewUser->GetUserPath() + "/networks/" + sNewNetwork + "/moddata/" + (*i)->GetModName();
+		for (CModule* pMod : vMods) {
+			CString sOldModPath = pOldNetwork->GetNetworkPath() + "/moddata/" + pMod->GetModName();
+			CString sNewModPath = pNewUser->GetUserPath() + "/networks/" + sNewNetwork + "/moddata/" + pMod->GetModName();
 
 			CDir oldDir(sOldModPath);
-			for (CDir::iterator it = oldDir.begin(); it != oldDir.end(); ++it) {
-				if ((*it)->GetShortName() != ".registry") {
+			for (CFile* pFile : oldDir) {
+				if (pFile->GetShortName() != ".registry") {
 					PutStatus("Some files seem to be in [" + sOldModPath + "]. You might want to move them to [" + sNewModPath + "]");
 					break;
 				}
 			}
 
-			(*i)->MoveRegistry(sNewModPath);
+			pMod->MoveRegistry(sNewModPath);
 		}
 
 		CString sNetworkAddError;
@@ -662,7 +683,7 @@ void CClient::UserCommand(CString& sLine) {
 		pNewNetwork->Clone(*pOldNetwork, false);
 
 		if (m_pNetwork && m_pNetwork->GetName().Equals(sOldNetwork) && m_pUser == pOldUser) {
-			SetNetwork(NULL);
+			SetNetwork(nullptr);
 		}
 
 		if (pOldUser->DeleteNetwork(sOldNetwork)) {
@@ -749,8 +770,7 @@ void CClient::UserCommand(CString& sLine) {
 			Table.AddColumn("SSL");
 			Table.AddColumn("Pass");
 
-			for (unsigned int a = 0; a < vServers.size(); a++) {
-				CServer* pServer = vServers[a];
+			for (const CServer* pServer : vServers) {
 				Table.AddRow();
 				Table.SetCell("Host", pServer->GetName() + (pServer == pCurServ ? "*" : ""));
 				Table.SetCell("Port", CString(pServer->GetPort()));
@@ -812,8 +832,7 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("Set By");
 		Table.AddColumn("Topic");
 
-		for (unsigned int a = 0; a < vChans.size(); a++) {
-			CChan* pChan = vChans[a];
+		for (const CChan* pChan : vChans) {
 			Table.AddRow();
 			Table.SetCell("Name", pChan->GetName());
 			Table.SetCell("Set By", pChan->GetTopicOwner());
@@ -833,10 +852,10 @@ void CClient::UserCommand(CString& sLine) {
 				GTable.AddColumn("Name");
 				GTable.AddColumn("Arguments");
 
-				for (unsigned int b = 0; b < GModules.size(); b++) {
+				for (const CModule* pMod : GModules) {
 					GTable.AddRow();
-					GTable.SetCell("Name", GModules[b]->GetModName());
-					GTable.SetCell("Arguments", GModules[b]->GetArgs());
+					GTable.SetCell("Name", pMod->GetModName());
+					GTable.SetCell("Arguments", pMod->GetArgs());
 				}
 
 				PutStatus(GTable);
@@ -853,10 +872,10 @@ void CClient::UserCommand(CString& sLine) {
 			Table.AddColumn("Name");
 			Table.AddColumn("Arguments");
 
-			for (unsigned int b = 0; b < Modules.size(); b++) {
+			for (const CModule* pMod : Modules) {
 				Table.AddRow();
-				Table.SetCell("Name", Modules[b]->GetModName());
-				Table.SetCell("Arguments", Modules[b]->GetArgs());
+				Table.SetCell("Name", pMod->GetModName());
+				Table.SetCell("Arguments", pMod->GetArgs());
 			}
 
 			PutStatus(Table);
@@ -872,10 +891,10 @@ void CClient::UserCommand(CString& sLine) {
 				Table.AddColumn("Name");
 				Table.AddColumn("Arguments");
 
-				for (unsigned int b = 0; b < NetworkModules.size(); b++) {
+				for (const CModule* pMod : NetworkModules) {
 					Table.AddRow();
-					Table.SetCell("Name", NetworkModules[b]->GetModName());
-					Table.SetCell("Arguments", NetworkModules[b]->GetArgs());
+					Table.SetCell("Name", pMod->GetModName());
+					Table.SetCell("Arguments", pMod->GetArgs());
 				}
 
 				PutStatus(Table);
@@ -900,10 +919,8 @@ void CClient::UserCommand(CString& sLine) {
 				CTable GTable;
 				GTable.AddColumn("Name");
 				GTable.AddColumn("Description");
-				set<CModInfo>::iterator it;
 
-				for (it = ssGlobalMods.begin(); it != ssGlobalMods.end(); ++it) {
-					const CModInfo& Info = *it;
+				for (const CModInfo& Info : ssGlobalMods) {
 					GTable.AddRow();
 					GTable.SetCell("Name", (CZNC::Get().GetModules().FindModule(Info.GetName()) ? "*" : " ") + Info.GetName());
 					GTable.SetCell("Description", Info.GetDescription().Ellipsize(128));
@@ -923,10 +940,8 @@ void CClient::UserCommand(CString& sLine) {
 			CTable Table;
 			Table.AddColumn("Name");
 			Table.AddColumn("Description");
-			set<CModInfo>::iterator it;
 
-			for (it = ssUserMods.begin(); it != ssUserMods.end(); ++it) {
-				const CModInfo& Info = *it;
+			for (const CModInfo& Info : ssUserMods) {
 				Table.AddRow();
 				Table.SetCell("Name", (m_pUser->GetModules().FindModule(Info.GetName()) ? "*" : " ") + Info.GetName());
 				Table.SetCell("Description", Info.GetDescription().Ellipsize(128));
@@ -945,10 +960,8 @@ void CClient::UserCommand(CString& sLine) {
 			CTable Table;
 			Table.AddColumn("Name");
 			Table.AddColumn("Description");
-			set<CModInfo>::const_iterator it;
 
-			for (it = ssNetworkMods.begin(); it != ssNetworkMods.end(); ++it) {
-				const CModInfo& Info = *it;
+			for (const CModInfo& Info : ssNetworkMods) {
 				Table.AddRow();
 				Table.SetCell("Name", ((m_pNetwork && m_pNetwork->GetModules().FindModule(Info.GetName())) ? "*" : " ") + Info.GetName());
 				Table.SetCell("Description", Info.GetDescription().Ellipsize(128));
@@ -1014,10 +1027,10 @@ void CClient::UserCommand(CString& sLine) {
 
 		switch (eType) {
 		case CModInfo::GlobalModule:
-			b = CZNC::Get().GetModules().LoadModule(sMod, sArgs, eType, NULL, NULL, sModRet);
+			b = CZNC::Get().GetModules().LoadModule(sMod, sArgs, eType, nullptr, nullptr, sModRet);
 			break;
 		case CModInfo::UserModule:
-			b = m_pUser->GetModules().LoadModule(sMod, sArgs, eType, m_pUser, NULL, sModRet);
+			b = m_pUser->GetModules().LoadModule(sMod, sArgs, eType, m_pUser, nullptr, sModRet);
 			break;
 		case CModInfo::NetworkModule:
 				b = m_pNetwork->GetModules().LoadModule(sMod, sArgs, eType, m_pUser, m_pNetwork, sModRet);
@@ -1153,10 +1166,10 @@ void CClient::UserCommand(CString& sLine) {
 
 		switch (eType) {
 		case CModInfo::GlobalModule:
-			CZNC::Get().GetModules().ReloadModule(sMod, sArgs, NULL, NULL, sModRet);
+			CZNC::Get().GetModules().ReloadModule(sMod, sArgs, nullptr, nullptr, sModRet);
 			break;
 		case CModInfo::UserModule:
-			m_pUser->GetModules().ReloadModule(sMod, sArgs, m_pUser, NULL, sModRet);
+			m_pUser->GetModules().ReloadModule(sMod, sArgs, m_pUser, nullptr, sModRet);
 			break;
 		case CModInfo::NetworkModule:
 			m_pNetwork->GetModules().ReloadModule(sMod, sArgs, m_pUser, m_pNetwork, sModRet);
@@ -1181,118 +1194,39 @@ void CClient::UserCommand(CString& sLine) {
 		} else {
 			PutStatus("Done, but there were errors, [" + sMod + "] could not be loaded everywhere.");
 		}
-	} else if ((sCommand.Equals("ADDBINDHOST") || sCommand.Equals("ADDVHOST")) && m_pUser->IsAdmin()) {
-		CString sHost = sLine.Token(1);
-
-		if (sHost.empty()) {
-			PutStatus("Usage: AddBindHost <host>");
-			return;
-		}
-
-		if (CZNC::Get().AddBindHost(sHost)) {
-			PutStatus("Done");
-		} else {
-			PutStatus("The host [" + sHost + "] is already in the list");
-		}
-	} else if ((sCommand.Equals("REMBINDHOST") || sCommand.Equals("DELBINDHOST") || sCommand.Equals("REMVHOST") || sCommand.Equals("DELVHOST")) && m_pUser->IsAdmin()) {
-		CString sHost = sLine.Token(1);
-
-		if (sHost.empty()) {
-			PutStatus("Usage: DelBindHost <host>");
-			return;
-		}
-
-		if (CZNC::Get().RemBindHost(sHost)) {
-			PutStatus("Done");
-		} else {
-			PutStatus("The host [" + sHost + "] is not in the list");
-		}
-	} else if ((sCommand.Equals("LISTBINDHOSTS") || sCommand.Equals("LISTVHOSTS")) && (m_pUser->IsAdmin() || !m_pUser->DenySetBindHost())) {
-		const VCString& vsHosts = CZNC::Get().GetBindHosts();
-
-		if (vsHosts.empty()) {
-			PutStatus("No bind hosts configured");
-			return;
-		}
-
-		CTable Table;
-		Table.AddColumn("Host");
-
-		VCString::const_iterator it;
-		for (it = vsHosts.begin(); it != vsHosts.end(); ++it) {
-			Table.AddRow();
-			Table.SetCell("Host", *it);
-		}
-		PutStatus(Table);
 	} else if ((sCommand.Equals("SETBINDHOST") || sCommand.Equals("SETVHOST")) && (m_pUser->IsAdmin() || !m_pUser->DenySetBindHost())) {
 		if (!m_pNetwork) {
 			PutStatus("You must be connected with a network to use this command. Try SetUserBindHost instead");
 			return;
 		}
-		CString sHost = sLine.Token(1);
+		CString sArg = sLine.Token(1);
 
-		if (sHost.empty()) {
+		if (sArg.empty()) {
 			PutStatus("Usage: SetBindHost <host>");
 			return;
 		}
 
-		if (sHost.Equals(m_pNetwork->GetBindHost())) {
+		if (sArg.Equals(m_pNetwork->GetBindHost())) {
 			PutStatus("You already have this bind host!");
 			return;
 		}
 
-		const VCString& vsHosts = CZNC::Get().GetBindHosts();
-		if (!m_pUser->IsAdmin() && !vsHosts.empty()) {
-			VCString::const_iterator it;
-			bool bFound = false;
-
-			for (it = vsHosts.begin(); it != vsHosts.end(); ++it) {
-				if (sHost.Equals(*it)) {
-					bFound = true;
-					break;
-				}
-			}
-
-			if (!bFound) {
-				PutStatus("You may not use this bind host. See [ListBindHosts] for a list");
-				return;
-			}
-		}
-
-		m_pNetwork->SetBindHost(sHost);
+		m_pNetwork->SetBindHost(sArg);
 		PutStatus("Set bind host for network [" + m_pNetwork->GetName() + "] to [" + m_pNetwork->GetBindHost() + "]");
 	} else if (sCommand.Equals("SETUSERBINDHOST") && (m_pUser->IsAdmin() || !m_pUser->DenySetBindHost())) {
-		CString sHost = sLine.Token(1);
+		CString sArg = sLine.Token(1);
 
-		if (sHost.empty()) {
+		if (sArg.empty()) {
 			PutStatus("Usage: SetUserBindHost <host>");
 			return;
 		}
 
-		if (sHost.Equals(m_pUser->GetBindHost())) {
+		if (sArg.Equals(m_pUser->GetBindHost())) {
 			PutStatus("You already have this bind host!");
 			return;
 		}
 
-		const VCString& vsHosts = CZNC::Get().GetBindHosts();
-		if (!m_pUser->IsAdmin() && !vsHosts.empty()) {
-			VCString::const_iterator it;
-			bool bFound = false;
-
-			for (it = vsHosts.begin(); it != vsHosts.end(); ++it) {
-				if (sHost.Equals(*it)) {
-					bFound = true;
-					break;
-				}
-			}
-
-			if (!bFound) {
-				PutStatus("You may not use this bind host. See [ListBindHosts] for a list");
-				return;
-			}
-		}
-
-		m_pUser->SetBindHost(sHost);
+		m_pUser->SetBindHost(sArg);
 		PutStatus("Set bind host to [" + m_pUser->GetBindHost() + "]");
 	} else if ((sCommand.Equals("CLEARBINDHOST") || sCommand.Equals("CLEARVHOST")) && (m_pUser->IsAdmin() || !m_pUser->DenySetBindHost())) {
 		if (!m_pNetwork) {
@@ -1371,17 +1305,17 @@ void CClient::UserCommand(CString& sLine) {
 
 		unsigned int uMatches = 0;
 		vector<CChan*> vChans = m_pNetwork->FindChans(sBuffer);
-		for (vector<CChan*>::const_iterator it = vChans.begin(); it != vChans.end(); ++it) {
+		for (CChan* pChan : vChans) {
 			uMatches++;
 
-			(*it)->ClearBuffer();
+			pChan->ClearBuffer();
 		}
 
 		vector<CQuery*> vQueries = m_pNetwork->FindQueries(sBuffer);
-		for (vector<CQuery*>::const_iterator it = vQueries.begin(); it != vQueries.end(); ++it) {
+		for (CQuery* pQuery : vQueries) {
 			uMatches++;
 
-			m_pNetwork->DelQuery((*it)->GetName());
+			m_pNetwork->DelQuery(pQuery->GetName());
 		}
 
 		PutStatus("[" + CString(uMatches) + "] buffers matching [" + sBuffer + "] have been cleared");
@@ -1391,11 +1325,8 @@ void CClient::UserCommand(CString& sLine) {
 			return;
 		}
 
-		vector<CChan*>::const_iterator it;
-		const vector<CChan*>& vChans = m_pNetwork->GetChans();
-
-		for (it = vChans.begin(); it != vChans.end(); ++it) {
-			(*it)->ClearBuffer();
+		for (CChan* pChan : m_pNetwork->GetChans()) {
+			pChan->ClearBuffer();
 		}
 		PutStatus("All channel buffers have been cleared");
 	} else if (sCommand.Equals("CLEARALLQUERYBUFFERS")) {
@@ -1404,13 +1335,19 @@ void CClient::UserCommand(CString& sLine) {
 			return;
 		}
 
-		vector<CQuery*>::const_iterator it;
-		vector<CQuery*> VQueries = m_pNetwork->GetQueries();
-
-		for (it = VQueries.begin(); it != VQueries.end(); ++it) {
-			m_pNetwork->DelQuery((*it)->GetName());
-		}
+		m_pNetwork->ClearQueryBuffer();
 		PutStatus("All query buffers have been cleared");
+	} else if (sCommand.Equals("CLEARALLBUFFERS")) {
+		if (!m_pNetwork) {
+			PutStatus("You must be connected with a network to use this command");
+			return;
+		}
+
+		for (CChan* pChan : m_pNetwork->GetChans()) {
+			pChan->ClearBuffer();
+		}
+		m_pNetwork->ClearQueryBuffer();
+		PutStatus("All buffers have been cleared");
 	} else if (sCommand.Equals("SETBUFFER")) {
 		if (!m_pNetwork) {
 			PutStatus("You must be connected with a network to use this command");
@@ -1427,18 +1364,18 @@ void CClient::UserCommand(CString& sLine) {
 		unsigned int uLineCount = sLine.Token(2).ToUInt();
 		unsigned int uMatches = 0, uFail = 0;
 		vector<CChan*> vChans = m_pNetwork->FindChans(sBuffer);
-		for (vector<CChan*>::const_iterator it = vChans.begin(); it != vChans.end(); ++it) {
+		for (CChan* pChan : vChans) {
 			uMatches++;
 
-			if (!(*it)->SetBufferCount(uLineCount))
+			if (!pChan->SetBufferCount(uLineCount))
 				uFail++;
 		}
 
 		vector<CQuery*> vQueries = m_pNetwork->FindQueries(sBuffer);
-		for (vector<CQuery*>::const_iterator it = vQueries.begin(); it != vQueries.end(); ++it) {
+		for (CQuery* pQuery : vQueries) {
 			uMatches++;
 
-			if (!(*it)->SetBufferCount(uLineCount))
+			if (!pQuery->SetBufferCount(uLineCount))
 				uFail++;
 		}
 
@@ -1451,7 +1388,6 @@ void CClient::UserCommand(CString& sLine) {
 	} else if (m_pUser->IsAdmin() && sCommand.Equals("TRAFFIC")) {
 		CZNC::TrafficStatsPair Users, ZNC, Total;
 		CZNC::TrafficStatsMap traffic = CZNC::Get().GetTrafficStats(Users, ZNC, Total);
-		CZNC::TrafficStatsMap::const_iterator it;
 
 		CTable Table;
 		Table.AddColumn("Username");
@@ -1459,12 +1395,12 @@ void CClient::UserCommand(CString& sLine) {
 		Table.AddColumn("Out");
 		Table.AddColumn("Total");
 
-		for (it = traffic.begin(); it != traffic.end(); ++it) {
+		for (const auto& it : traffic) {
 			Table.AddRow();
-			Table.SetCell("Username", it->first);
-			Table.SetCell("In", CString::ToByteStr(it->second.first));
-			Table.SetCell("Out", CString::ToByteStr(it->second.second));
-			Table.SetCell("Total", CString::ToByteStr(it->second.first + it->second.second));
+			Table.SetCell("Username", it.first);
+			Table.SetCell("In", CString::ToByteStr(it.second.first));
+			Table.SetCell("Out", CString::ToByteStr(it.second.second));
+			Table.SetCell("Total", CString::ToByteStr(it.second.first + it.second.second));
 		}
 
 		Table.AddRow();
@@ -1511,18 +1447,18 @@ void CClient::UserPortCommand(CString& sLine) {
 		vector<CListener*>::const_iterator it;
 		const vector<CListener*>& vpListeners = CZNC::Get().GetListeners();
 
-		for (it = vpListeners.begin(); it < vpListeners.end(); ++it) {
+		for (const CListener* pListener : vpListeners) {
 			Table.AddRow();
-			Table.SetCell("Port", CString((*it)->GetPort()));
-			Table.SetCell("BindHost", ((*it)->GetBindHost().empty() ? CString("*") : (*it)->GetBindHost()));
-			Table.SetCell("SSL", CString((*it)->IsSSL()));
+			Table.SetCell("Port", CString(pListener->GetPort()));
+			Table.SetCell("BindHost", (pListener->GetBindHost().empty() ? CString("*") : pListener->GetBindHost()));
+			Table.SetCell("SSL", CString(pListener->IsSSL()));
 
-			EAddrType eAddr = (*it)->GetAddrType();
+			EAddrType eAddr = pListener->GetAddrType();
 			Table.SetCell("Proto", (eAddr == ADDR_ALL ? "All" : (eAddr == ADDR_IPV4ONLY ? "IPv4" : "IPv6")));
 
-			CListener::EAcceptType eAccept = (*it)->GetAcceptType();
+			CListener::EAcceptType eAccept = pListener->GetAcceptType();
 			Table.SetCell("IRC/Web", (eAccept == CListener::ACCEPT_ALL ? "All" : (eAccept == CListener::ACCEPT_IRC ? "IRC" : "Web")));
-			Table.SetCell("URIPrefix", (*it)->GetURIPrefix() + "/");
+			Table.SetCell("URIPrefix", pListener->GetURIPrefix() + "/");
 		}
 
 		PutStatus(Table);
@@ -1563,7 +1499,7 @@ void CClient::UserPortCommand(CString& sLine) {
 		if (sPort.empty() || sAddr.empty() || sAccept.empty()) {
 			PutStatus("Usage: AddPort <[+]port> <ipv4|ipv6|all> <web|irc|all> [bindhost [uriprefix]]");
 		} else {
-			bool bSSL = (sPort.Left(1).Equals("+"));
+			bool bSSL = (sPort.StartsWith("+"));
 			const CString sBindHost = sLine.Token(4);
 			const CString sURIPrefix = sLine.Token(5);
 
@@ -1599,8 +1535,7 @@ void CClient::UserPortCommand(CString& sLine) {
 
 static void AddCommandHelp(CTable& Table, const CString& sCmd, const CString& sArgs, const CString& sDesc, const CString& sFilter = "")
 {
-	const CString::size_type iFilterLength = sFilter.size();
-	if (sFilter.empty() || sCmd.Equals(sFilter, false, iFilterLength) || sCmd.AsLower().WildCmp(sFilter.AsLower())) {
+	if (sFilter.empty() || sCmd.StartsWith(sFilter) || sCmd.AsLower().WildCmp(sFilter.AsLower())) {
 		Table.AddRow();
 		Table.SetCell("Command", sCmd + " " + sArgs);
 		Table.SetCell("Description", sDesc);
@@ -1645,24 +1580,21 @@ void CClient::HelpUser(const CString& sFilter) {
 	AddCommandHelp(Table, "DelTrustedServerFingerprint", "<fi:ng:er>", "Delete a trusted server SSL certificate from current IRC network.", sFilter);
 	AddCommandHelp(Table, "ListTrustedServerFingerprints", "", "List all trusted server SSL certificates of current IRC network.", sFilter);
 
+	AddCommandHelp(Table, "ShowChan", "<#chan>", "Show channel details", sFilter);
 	AddCommandHelp(Table, "EnableChan", "<#chans>", "Enable channels", sFilter);
 	AddCommandHelp(Table, "DisableChan", "<#chans>", "Disable channels", sFilter);
+	AddCommandHelp(Table, "Attach", "<#chans>", "Attach to channels", sFilter);
 	AddCommandHelp(Table, "Detach", "<#chans>", "Detach from channels", sFilter);
 	AddCommandHelp(Table, "Topics", "", "Show topics in all your channels", sFilter);
 
 	AddCommandHelp(Table, "PlayBuffer", "<#chan|query>", "Play back the specified buffer", sFilter);
 	AddCommandHelp(Table, "ClearBuffer", "<#chan|query>", "Clear the specified buffer", sFilter);
+	AddCommandHelp(Table, "ClearAllBuffers", "", "Clear all channel and query buffers", sFilter);
 	AddCommandHelp(Table, "ClearAllChannelBuffers", "", "Clear the channel buffers", sFilter);
 	AddCommandHelp(Table, "ClearAllQueryBuffers", "", "Clear the query buffers", sFilter);
 	AddCommandHelp(Table, "SetBuffer", "<#chan|query> [linecount]", "Set the buffer count", sFilter);
 
-	if (m_pUser->IsAdmin()) {
-		AddCommandHelp(Table, "AddBindHost", "<host (IP preferred)>", "Adds a bind host for normal users to use", sFilter);
-		AddCommandHelp(Table, "DelBindHost", "<host>", "Removes a bind host from the list", sFilter);
-	}
-
 	if (m_pUser->IsAdmin() || !m_pUser->DenySetBindHost()) {
-		AddCommandHelp(Table, "ListBindHosts", "", "Shows the configured list of bind hosts", sFilter);
 		AddCommandHelp(Table, "SetBindHost", "<host (IP preferred)>", "Set the bind host for this connection", sFilter);
 		AddCommandHelp(Table, "SetUserBindHost", "<host (IP preferred)>", "Set the default bind host for this user", sFilter);
 		AddCommandHelp(Table, "ClearBindHost", "", "Clear the bind host for this connection", sFilter);
@@ -1693,7 +1625,7 @@ void CClient::HelpUser(const CString& sFilter) {
 		AddCommandHelp(Table, "ListPorts", "", "Show all active listeners", sFilter);
 		AddCommandHelp(Table, "AddPort", "<[+]port> <ipv4|ipv6|all> <web|irc|all> [bindhost [uriprefix]]", "Add another port for ZNC to listen on", sFilter);
 		AddCommandHelp(Table, "DelPort", "<port> <ipv4|ipv6|all> [bindhost]", "Remove a port from ZNC", sFilter);
-		AddCommandHelp(Table, "Rehash", "", "Reload znc.conf from disk", sFilter);
+		AddCommandHelp(Table, "Rehash", "", "Reload global settings, modules, and listeners from znc.conf", sFilter);
 		AddCommandHelp(Table, "SaveConfig", "", "Save the current settings to disk", sFilter);
 		AddCommandHelp(Table, "ListUsers", "", "List all ZNC users and their connection status", sFilter);
 		AddCommandHelp(Table, "ListAllUserNetworks", "", "List all ZNC users and their networks", sFilter);

@@ -18,10 +18,17 @@
 
 class CFailToBanMod : public CModule {
 public:
-	MODCONSTRUCTOR(CFailToBanMod) {}
+	MODCONSTRUCTOR(CFailToBanMod) {
+		AddHelpCommand();
+		AddCommand("Timeout",  static_cast<CModCommand::ModCmdFunc>(&CFailToBanMod::OnTimeoutCommand), "[minutes]", "The number of minutes IPs are blocked after a failed login.");
+		AddCommand("Attempts", static_cast<CModCommand::ModCmdFunc>(&CFailToBanMod::OnAttemptsCommand), "[count]", "The number of allowed failed login attempts.");
+		AddCommand("Ban",      static_cast<CModCommand::ModCmdFunc>(&CFailToBanMod::OnBanCommand), "<hosts>", "Ban the specified hosts.");
+		AddCommand("Unban",    static_cast<CModCommand::ModCmdFunc>(&CFailToBanMod::OnUnbanCommand), "<hosts>", "Unban the specified hosts.");
+		AddCommand("List",     static_cast<CModCommand::ModCmdFunc>(&CFailToBanMod::OnListCommand), "", "List banned hosts.");
+	}
 	virtual ~CFailToBanMod() {}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		CString sTimeout = sArgs.Token(0);
 		CString sAttempts = sArgs.Token(1);
 		unsigned int timeout = sTimeout.ToUInt();
@@ -29,7 +36,7 @@ public:
 		if (sAttempts.empty())
 			m_uiAllowedFailed = 2;
 		else
-			m_uiAllowedFailed = sAttempts.ToUInt();;
+			m_uiAllowedFailed = sAttempts.ToUInt();
 
 		if (sArgs.empty()) {
 			timeout = 1;
@@ -46,7 +53,7 @@ public:
 		return true;
 	}
 
-	virtual void OnPostRehash() override {
+	void OnPostRehash() override {
 		m_Cache.Clear();
 	}
 
@@ -54,15 +61,104 @@ public:
 		m_Cache.AddItem(sHost, count, m_Cache.GetTTL());
 	}
 
-	virtual void OnModCommand(const CString& sCommand) override {
-		PutModule("This module can only be configured through its arguments.");
-		PutModule("The module argument is the number of minutes an IP");
-		PutModule("is blocked after a failed login.");
+	bool Remove(const CString& sHost) {
+		return m_Cache.RemItem(sHost);
 	}
 
-	virtual void OnClientConnect(CZNCSock* pClient, const CString& sHost, unsigned short uPort) override {
+	void OnTimeoutCommand(const CString& sCommand) {
+		CString sArg = sCommand.Token(1);
+
+		if (!sArg.empty()) {
+			unsigned int uTimeout = sArg.ToUInt();
+			if (uTimeout == 0) {
+				PutModule("Usage: Timeout [minutes]");
+			} else {
+				m_Cache.SetTTL(uTimeout * 60 * 1000);
+				SetArgs(CString(m_Cache.GetTTL() / 60 / 1000) + " " + CString(m_uiAllowedFailed));
+				PutModule("Timeout: " + CString(uTimeout) + " min");
+			}
+		} else {
+			PutModule("Timeout: " + CString(m_Cache.GetTTL() / 60 / 1000) + " min");
+		}
+	}
+
+	void OnAttemptsCommand(const CString& sCommand) {
+		CString sArg = sCommand.Token(1);
+
+		if (!sArg.empty()) {
+			unsigned int uiAttempts = sArg.ToUInt();
+			if (uiAttempts == 0) {
+				PutModule("Usage: Attempts [count]");
+			} else {
+				m_uiAllowedFailed = uiAttempts;
+				SetArgs(CString(m_Cache.GetTTL() / 60 / 1000) + " " + CString(m_uiAllowedFailed));
+				PutModule("Attempts: " + CString(uiAttempts));
+			}
+		} else {
+			PutModule("Attempts: " + CString(m_uiAllowedFailed));
+		}
+	}
+
+	void OnBanCommand(const CString& sCommand) {
+		CString sHosts = sCommand.Token(1, true);
+
+		if (sHosts.empty()) {
+			PutStatus("Usage: Ban <hosts>");
+			return;
+		}
+
+		VCString vsHosts;
+		sHosts.Replace(",", " ");
+		sHosts.Split(" ", vsHosts, false, "", "", true, true);
+
+		for (const CString& sHost : vsHosts) {
+			Add(sHost, 0);
+			PutModule("Banned: " + sHost);
+		}
+	}
+
+	void OnUnbanCommand(const CString& sCommand) {
+		CString sHosts = sCommand.Token(1, true);
+
+		if (sHosts.empty()) {
+			PutStatus("Usage: Unban <hosts>");
+			return;
+		}
+
+		VCString vsHosts;
+		sHosts.Replace(",", " ");
+		sHosts.Split(" ", vsHosts, false, "", "", true, true);
+
+		for (const CString& sHost : vsHosts) {
+			if (Remove(sHost)) {
+				PutModule("Unbanned: " + sHost);
+			} else {
+				PutModule("Ignored: " + sHost);
+			}
+		}
+	}
+
+	void OnListCommand(const CString& sCommand) {
+		CTable Table;
+		Table.AddColumn("Host");
+		Table.AddColumn("Attempts");
+
+		for (const auto& it : m_Cache.GetItems()) {
+			Table.AddRow();
+			Table.SetCell("Host", it.first);
+			Table.SetCell("Attempts", CString(it.second));
+		}
+
+		if (Table.empty()) {
+			PutModule("No bans");
+		} else {
+			PutModule(Table);
+		}
+	}
+
+	void OnClientConnect(CZNCSock* pClient, const CString& sHost, unsigned short uPort) override {
 		unsigned int *pCount = m_Cache.GetItem(sHost);
-		if (sHost.empty() || pCount == NULL || *pCount < m_uiAllowedFailed) {
+		if (sHost.empty() || pCount == nullptr || *pCount < m_uiAllowedFailed) {
 			return;
 		}
 
@@ -73,7 +169,7 @@ public:
 		pClient->Close(Csock::CLT_AFTERWRITE);
 	}
 
-	virtual void OnFailedLogin(const CString& sUsername, const CString& sRemoteIP) override {
+	void OnFailedLogin(const CString& sUsername, const CString& sRemoteIP) override {
 		unsigned int *pCount = m_Cache.GetItem(sRemoteIP);
 		if (pCount)
 			Add(sRemoteIP, *pCount + 1);
@@ -81,7 +177,7 @@ public:
 			Add(sRemoteIP, 1);
 	}
 
-	virtual EModRet OnLoginAttempt(std::shared_ptr<CAuthBase> Auth) override {
+	EModRet OnLoginAttempt(std::shared_ptr<CAuthBase> Auth) override {
 		// e.g. webadmin ends up here
 		const CString& sRemoteIP = Auth->GetRemoteIP();
 

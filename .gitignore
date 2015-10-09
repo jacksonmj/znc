@@ -16,6 +16,7 @@ Makefile
 *.pc
 /include/znc/zncconfig.h
 /znc-buildmod
+/znc.service
 
 # modperl and modpython generated code
 /modules/modperl/functions.cpp
@@ -36,6 +37,7 @@ __pycache__
 
 # Compiled Object files
 *.o
+*.o-*
 
 # Compiled Dynamic libraries
 *.so

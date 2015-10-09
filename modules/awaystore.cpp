@@ -26,9 +26,12 @@
 
 #define REQUIRESSL
 
+#include <znc/main.h>
 #include <znc/User.h>
 #include <znc/IRCNetwork.h>
 #include <znc/FileUtils.h>
+#include <znc/Modules.h>
+#include <znc/Chan.h>
 
 using std::vector;
 using std::map;
@@ -46,7 +49,7 @@ public:
 	virtual ~CAwayJob() {}
 
 protected:
-	virtual void RunJob() override;
+	void RunJob() override;
 };
 
 class CAway : public CModule
@@ -203,6 +206,7 @@ public:
 		m_bIsAway = false;
 		m_bBootError = false;
 		m_saveMessages = true;
+		m_chanMessages = false;
 		SetAwayTime(300);
 		AddTimer(new CAwayJob(this, 60, 0, "AwayJob", "Checks for idle and saves messages every 1 minute"));
 
@@ -233,7 +237,7 @@ public:
 			SaveBufferToDisk();
 	}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override
+	bool OnLoad(const CString& sArgs, CString& sMessage) override
 	{
 		CString sMyArgs = sArgs;
 		size_t uIndex = 0;
@@ -241,6 +245,11 @@ public:
 		{
 			uIndex++;
 			m_saveMessages = false;
+		}
+		if (sMyArgs.Token(uIndex) == "-chans")
+		{
+			uIndex++;
+			m_chanMessages = true;
 		}
 		if (sMyArgs.Token(uIndex) == "-notimer")
 		{
@@ -273,7 +282,7 @@ public:
 		return true;
 	}
 
-	virtual void OnIRCConnected() override
+	void OnIRCConnected() override
 	{
 		if (m_bIsAway)
 			Away(true); // reset away if we are reconnected
@@ -329,11 +338,11 @@ public:
 		}
 	}
 
-	virtual void OnClientLogin() override
+	void OnClientLogin() override
 	{
 		Back(true);
 	}
-	virtual void OnClientDisconnect() override
+	void OnClientDisconnect() override
 	{
 		Away();
 	}
@@ -355,7 +364,7 @@ public:
 			else if (!sReason.empty())
 				m_sReason = sReason;
 
-			time_t iTime = time(NULL);
+			time_t iTime = time(nullptr);
 			char *pTime = ctime(&iTime);
 			CString sTime;
 			if (pTime)
@@ -390,22 +399,31 @@ public:
 		m_sReason = "";
 	}
 
-	virtual EModRet OnPrivMsg(CNick& Nick, CString& sMessage) override
+	EModRet OnPrivMsg(CNick& Nick, CString& sMessage) override
 	{
 		if (m_bIsAway)
-			AddMessage(time(NULL), Nick, sMessage);
+			AddMessage(time(nullptr), Nick, sMessage);
 		return(CONTINUE);
 	}
 
-	virtual EModRet OnPrivAction(CNick& Nick, CString& sMessage) override
+	EModRet OnChanMsg(CNick& nick, CChan& channel, CString& sMessage) override
+	{
+		if(m_bIsAway && m_chanMessages && sMessage.AsLower().find(m_pNetwork->GetCurNick().AsLower()) != CString::npos) {
+			AddMessage(time(nullptr), nick, channel.GetName() + " " + sMessage);
+		}
+		
+		return(CONTINUE);
+	}
+
+	EModRet OnPrivAction(CNick& Nick, CString& sMessage) override
 	{
 		if (m_bIsAway) {
-			AddMessage(time(NULL), Nick, "* " + sMessage);
+			AddMessage(time(nullptr), Nick, "* " + sMessage);
 		}
 		return(CONTINUE);
 	}
 
-	virtual EModRet OnUserNotice(CString& sTarget, CString& sMessage) override
+	EModRet OnUserNotice(CString& sTarget, CString& sMessage) override
 	{
 		Ping();
 		if (m_bIsAway)
@@ -414,7 +432,7 @@ public:
 		return(CONTINUE);
 	}
 
-	virtual EModRet OnUserMsg(CString& sTarget, CString& sMessage) override
+	EModRet OnUserMsg(CString& sTarget, CString& sMessage) override
 	{
 		Ping();
 		if (m_bIsAway)
@@ -423,7 +441,7 @@ public:
 		return(CONTINUE);
 	}
 
-	virtual EModRet OnUserAction(CString& sTarget, CString& sMessage) override
+	EModRet OnUserAction(CString& sTarget, CString& sMessage) override
 	{
 		Ping();
 		if (m_bIsAway)
@@ -433,7 +451,7 @@ public:
 	}
 
 	time_t GetTimeStamp() const { return(m_iLastSentData); }
-	void Ping() { m_iLastSentData = time(NULL); }
+	void Ping() { m_iLastSentData = time(nullptr); }
 	time_t GetAwayTime() { return m_iAutoAway; }
 	void SetAwayTime(time_t u) { m_iAutoAway = u; }
 
@@ -495,6 +513,7 @@ private:
 	vector<CString> m_vMessages;
 	CString         m_sReason;
 	bool            m_saveMessages;
+	bool            m_chanMessages;
 };
 
 
@@ -505,7 +524,7 @@ void CAwayJob::RunJob()
 
 	if (!p->IsAway())
 	{
-		time_t iNow = time(NULL);
+		time_t iNow = time(nullptr);
 
 		if ((iNow - p->GetTimeStamp()) > p->GetAwayTime() && p->GetAwayTime() != 0)
 			p->Away();
@@ -515,8 +534,8 @@ void CAwayJob::RunJob()
 template<> void TModInfo<CAway>(CModInfo& Info) {
 	Info.SetWikiPage("awaystore");
 	Info.SetHasArgs(true);
-	Info.SetArgsHelpText("[ -notimer | -timer N ]  passw0rd . N is number of seconds, 600 by default.");
+	Info.SetArgsHelpText("[ -notimer | -timer N ] [-chans]  passw0rd . N is number of seconds, 600 by default.");
 }
 
-NETWORKMODULEDEFS(CAway, "Adds auto-away with logging, useful when you use ZNC from different locations");
+NETWORKMODULEDEFS(CAway, "Adds auto-away with logging, useful when you use ZNC from different locations")
 

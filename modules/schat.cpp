@@ -47,7 +47,7 @@ public:
 	}
 
 protected:
-	virtual void RunJob() override;
+	void RunJob() override;
 	CString m_sNick;
 };
 
@@ -59,27 +59,27 @@ public:
 			u_short iPort, int iTimeout = 60);
 	~CSChatSock() {}
 
-	virtual Csock *GetSockObj(const CS_STRING & sHostname, u_short iPort) override
+	Csock *GetSockObj(const CS_STRING & sHostname, u_short iPort) override
 	{
 		CSChatSock *p = new CSChatSock(m_pModule, m_sChatNick, sHostname, iPort);
 		return(p);
 	}
 
-	virtual bool ConnectionFrom(const CS_STRING & sHost, u_short iPort) override
+	bool ConnectionFrom(const CS_STRING & sHost, u_short iPort) override
 	{
 		Close(); // close the listener after the first connection
 		return(true);
 	}
 
-	virtual void Connected() override;
-	virtual void Timeout() override;
+	void Connected() override;
+	void Timeout() override;
 
 	const CString & GetChatNick() const { return(m_sChatNick); }
 
 	void PutQuery(const CString& sText);
 
-	virtual void ReadLine(const CS_STRING & sLine) override;
-	virtual void Disconnected() override;
+	void ReadLine(const CS_STRING & sLine) override;
+	void Disconnected() override;
 
 	void AddLine(const CString & sLine)
 	{
@@ -116,7 +116,7 @@ public:
 	MODCONSTRUCTOR(CSChat) {}
 	virtual ~CSChat() {}
 
-	virtual bool OnLoad(const CString & sArgs, CString & sMessage) override
+	bool OnLoad(const CString & sArgs, CString & sMessage) override
 	{
 		m_sPemFile = sArgs;
 
@@ -132,7 +132,7 @@ public:
 		return true;
 	}
 
-	virtual void OnClientLogin() override
+	void OnClientLogin() override
 	{
 		set<CSocket*>::const_iterator it;
 		for (it = BeginSockets(); it != EndSockets(); ++it) {
@@ -145,9 +145,9 @@ public:
 		}
 	}
 
-	virtual EModRet OnUserRaw(CString & sLine) override
+	EModRet OnUserRaw(CString & sLine) override
 	{
-		if (sLine.Equals("schat ", false, 6)) {
+		if (sLine.StartsWith("schat ")) {
 			OnModCommand("chat " + sLine.substr(6));
 			return(HALT);
 
@@ -160,7 +160,7 @@ public:
 		return(CONTINUE);
 	}
 
-	virtual void OnModCommand(const CString& sCommand) override
+	void OnModCommand(const CString& sCommand) override
 	{
 		CString sCom = sCommand.Token(0);
 		CString sArgs = sCommand.Token(1, true);
@@ -240,7 +240,7 @@ public:
 				PutModule("No SDCCs currently in session");
 
 		} else if (sCom.Equals("close")) {
-			if (!sArgs.Equals("(s)", false, 3))
+			if (!sArgs.StartsWith("(s)"))
 				sArgs = "(s)" + sArgs;
 
 			set<CSocket*>::const_iterator it;
@@ -319,9 +319,9 @@ public:
 			PutModule("Unknown command [" + sCom + "] [" + sArgs + "]");
 	}
 
-	virtual EModRet OnPrivCTCP(CNick& Nick, CString& sMessage) override
+	EModRet OnPrivCTCP(CNick& Nick, CString& sMessage) override
 	{
-		if (sMessage.Equals("DCC SCHAT ", false, 10)) {
+		if (sMessage.StartsWith("DCC SCHAT ")) {
 			// chat ip port
 			unsigned long iIP = sMessage.Token(3).ToULong();
 			unsigned short iPort = sMessage.Token(4).ToUShort();
@@ -357,7 +357,7 @@ public:
 		RemTimer("Remove " + sNick); // delete any associated timer to this nick
 	}
 
-	virtual EModRet OnUserMsg(CString& sTarget, CString& sMessage) override
+	EModRet OnUserMsg(CString& sTarget, CString& sMessage) override
 	{
 		if (sTarget.Left(3) == "(s)") {
 			CString sSockName = GetModName().AsUpper() + "::" + sTarget;

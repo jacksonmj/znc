@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <znc/IRCNetwork.h>
 #include <znc/Modules.h>
 #include <znc/Chan.h>
 
@@ -40,8 +41,8 @@ public:
 	const CString& GetHostmask() const { return m_sHostmask; }
 
 	bool ChannelMatches(const CString& sChan) const {
-		for (set<CString>::const_iterator it = m_ssChans.begin(); it != m_ssChans.end(); ++it) {
-			if (sChan.AsLower().WildCmp(*it)) {
+		for (const CString& s : m_ssChans) {
+			if (sChan.AsLower().WildCmp(s, CString::CaseInsensitive)) {
 				return true;
 			}
 		}
@@ -50,18 +51,18 @@ public:
 	}
 
 	bool HostMatches(const CString& sHostmask) {
-		return sHostmask.WildCmp(m_sHostmask);
+		return sHostmask.WildCmp(m_sHostmask, CString::CaseInsensitive);
 	}
 
 	CString GetChannels() const {
 		CString sRet;
 
-		for (set<CString>::const_iterator it = m_ssChans.begin(); it != m_ssChans.end(); ++it) {
+		for (const CString& sChan : m_ssChans) {
 			if (!sRet.empty()) {
 				sRet += " ";
 			}
 
-			sRet += *it;
+			sRet += sChan;
 		}
 
 		return sRet;
@@ -71,8 +72,8 @@ public:
 		VCString vsChans;
 		sChans.Split(" ", vsChans);
 
-		for (unsigned int a = 0; a < vsChans.size(); a++) {
-			m_ssChans.erase(vsChans[a].AsLower());
+		for (const CString& sChan : vsChans) {
+			m_ssChans.erase(sChan.AsLower());
 		}
 	}
 
@@ -80,20 +81,20 @@ public:
 		VCString vsChans;
 		sChans.Split(" ", vsChans);
 
-		for (unsigned int a = 0; a < vsChans.size(); a++) {
-			m_ssChans.insert(vsChans[a].AsLower());
+		for (const CString& sChan : vsChans) {
+			m_ssChans.insert(sChan.AsLower());
 		}
 	}
 
 	CString ToString() const {
 		CString sChans;
 
-		for (set<CString>::const_iterator it = m_ssChans.begin(); it != m_ssChans.end(); ++it) {
+		for (const CString& sChan : m_ssChans) {
 			if (!sChans.empty()) {
 				sChans += " ";
 			}
 
-			sChans += *it;
+			sChans += sChan;
 		}
 
 		return m_sUsername + "\t" + m_sHostmask + "\t" + sChans;
@@ -124,16 +125,16 @@ public:
 		AddCommand("DelUser", static_cast<CModCommand::ModCmdFunc>(&CAutoVoiceMod::OnDelUserCommand), "<user>", "Removes a user");
 	}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		// Load the chans from the command line
 		unsigned int a = 0;
 		VCString vsChans;
 		sArgs.Split(" ", vsChans, false);
 
-		for (VCString::const_iterator it = vsChans.begin(); it != vsChans.end(); ++it) {
+		for (const CString& sChan : vsChans) {
 			CString sName = "Args";
 			sName += CString(a);
-			AddUser(sName, "*", *it);
+			AddUser(sName, "*", sChan);
 		}
 
 		// Load the saved users
@@ -152,24 +153,46 @@ public:
 	}
 
 	virtual ~CAutoVoiceMod() {
-		for (map<CString, CAutoVoiceUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
-			delete it->second;
+		for (const auto& it : m_msUsers) {
+			delete it.second;
 		}
 
 		m_msUsers.clear();
 	}
 
-	virtual void OnJoin(const CNick& Nick, CChan& Channel) override {
+	void OnJoin(const CNick& Nick, CChan& Channel) override {
 		// If we have ops in this chan
 		if (Channel.HasPerm(CChan::Op) || Channel.HasPerm(CChan::HalfOp)) {
-			for (map<CString, CAutoVoiceUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
+			for (const auto& it : m_msUsers) {
 				// and the nick who joined is a valid user
-				if (it->second->HostMatches(Nick.GetHostMask()) && it->second->ChannelMatches(Channel.GetName())) {
+				if (it.second->HostMatches(Nick.GetHostMask()) && it.second->ChannelMatches(Channel.GetName())) {
 					PutIRC("MODE " + Channel.GetName() + " +v " + Nick.GetNick());
 					break;
 				}
 			}
 		}
+	}
+
+	void OnOp2(const CNick* pOpNick, const CNick& Nick, CChan& Channel, bool bNoChange) override {
+		if (Nick.NickEquals(GetNetwork()->GetNick())) {
+			const map<CString,CNick>& msNicks = Channel.GetNicks();
+
+			for (const auto& it : msNicks) {
+				if (!it.second.HasPerm(CChan::Voice)) {
+					CheckAutoVoice(it.second, Channel);
+				}
+			}
+		}
+	}
+
+	bool CheckAutoVoice(const CNick& Nick, CChan& Channel) {
+		CAutoVoiceUser *pUser = FindUserByHost(Nick.GetHostMask(), Channel.GetName());
+		if (!pUser) {
+			return false;
+		}
+
+		PutIRC("MODE " + Channel.GetName() + " +v " + Nick.GetNick());
+		return true;
 	}
 
 	void OnAddUserCommand(const CString& sLine) {
@@ -210,11 +233,11 @@ public:
 		Table.AddColumn("Hostmask");
 		Table.AddColumn("Channels");
 
-		for (map<CString, CAutoVoiceUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
+		for (const auto& it : m_msUsers) {
 			Table.AddRow();
-			Table.SetCell("User", it->second->GetUsername());
-			Table.SetCell("Hostmask", it->second->GetHostmask());
-			Table.SetCell("Channels", it->second->GetChannels());
+			Table.SetCell("User", it.second->GetUsername());
+			Table.SetCell("Hostmask", it.second->GetHostmask());
+			Table.SetCell("Channels", it.second->GetChannels());
 		}
 
 		PutModule(Table);
@@ -267,19 +290,19 @@ public:
 	CAutoVoiceUser* FindUser(const CString& sUser) {
 		map<CString, CAutoVoiceUser*>::iterator it = m_msUsers.find(sUser.AsLower());
 
-		return (it != m_msUsers.end()) ? it->second : NULL;
+		return (it != m_msUsers.end()) ? it->second : nullptr;
 	}
 
 	CAutoVoiceUser* FindUserByHost(const CString& sHostmask, const CString& sChannel = "") {
-		for (map<CString, CAutoVoiceUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
-			CAutoVoiceUser* pUser = it->second;
+		for (const auto& it : m_msUsers) {
+			CAutoVoiceUser* pUser = it.second;
 
 			if (pUser->HostMatches(sHostmask) && (sChannel.empty() || pUser->ChannelMatches(sChannel))) {
 				return pUser;
 			}
 		}
 
-		return NULL;
+		return nullptr;
 	}
 
 	void DelUser(const CString& sUser) {
@@ -298,7 +321,7 @@ public:
 	CAutoVoiceUser* AddUser(const CString& sUser, const CString& sHost, const CString& sChans) {
 		if (m_msUsers.find(sUser) != m_msUsers.end()) {
 			PutModule("That user already exists");
-			return NULL;
+			return nullptr;
 		}
 
 		CAutoVoiceUser* pUser = new CAutoVoiceUser(sUser, sHost, sChans);

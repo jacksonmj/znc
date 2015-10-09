@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef _IRCSOCK_H
-#define _IRCSOCK_H
+#ifndef ZNC_IRCSOCK_H
+#define ZNC_IRCSOCK_H
 
 #include <znc/zncconfig.h>
 #include <znc/Socket.h>
 #include <znc/Nick.h>
+#include <znc/Message.h>
 
 #include <deque>
 
@@ -36,6 +37,9 @@ public:
 	CIRCSock(CIRCNetwork* pNetwork);
 	virtual ~CIRCSock();
 
+	CIRCSock(const CIRCSock&) = delete;
+	CIRCSock& operator=(const CIRCSock&) = delete;
+
 	typedef enum {
 		// These values must line up with their position in the CHANMODE argument to raw 005
 		ListArg    = 0,
@@ -44,25 +48,13 @@ public:
 		NoArg      = 3
 	} EChanModeArgs;
 
-	// Message Handlers
-	bool OnCTCPReply(CNick& Nick, CString& sMessage);
-	bool OnPrivCTCP(CNick& Nick, CString& sMessage);
-	bool OnChanCTCP(CNick& Nick, const CString& sChan, CString& sMessage);
-	bool OnGeneralCTCP(CNick& Nick, CString& sMessage);
-	bool OnPrivMsg(CNick& Nick, CString& sMessage);
-	bool OnChanMsg(CNick& Nick, const CString& sChan, CString& sMessage);
-	bool OnPrivNotice(CNick& Nick, CString& sMessage);
-	bool OnChanNotice(CNick& Nick, const CString& sChan, CString& sMessage);
-	bool OnServerCapAvailable(const CString& sCap);
-	// !Message Handlers
-
-	virtual void ReadLine(const CString& sData);
-	virtual void Connected();
-	virtual void Disconnected();
-	virtual void ConnectionRefused();
-	virtual void SockError(int iErrno, const CString& sDescription);
-	virtual void Timeout();
-	virtual void ReachedMaxBuffer();
+	void ReadLine(const CString& sData) override;
+	void Connected() override;
+	void Disconnected() override;
+	void ConnectionRefused() override;
+	void SockError(int iErrno, const CString& sDescription) override;
+	void Timeout() override;
+	void ReachedMaxBuffer() override;
 
 	void PutIRC(const CString& sLine);
 	void PutIRCQuick(const CString& sLine); //!< Should be used for PONG only
@@ -98,23 +90,49 @@ public:
 	CIRCNetwork* GetNetwork() const { return m_pNetwork; }
 	bool HasNamesx() const { return m_bNamesx; }
 	bool HasUHNames() const { return m_bUHNames; }
+	bool HasAwayNotify() const { return m_bAwayNotify; }
+	bool HasAccountNotify() const { return m_bAccountNotify; }
+	bool HasExtendedJoin() const { return m_bExtendedJoin; }
+	bool HasServerTime() const { return m_bServerTime; }
 	const std::set<unsigned char>& GetUserModes() const { return m_scUserModes; }
 	// This is true if we are past raw 001
 	bool IsAuthed() const { return m_bAuthed; }
+	const SCString& GetAcceptedCaps() const { return m_ssAcceptedCaps; }
 	bool IsCapAccepted(const CString& sCap) { return 1 == m_ssAcceptedCaps.count(sCap); }
 	const MCString& GetISupport() const { return m_mISupport; }
 	CString GetISupport(const CString& sKey, const CString& sDefault = "") const;
 	// !Getters
 
-	// This handles NAMESX and UHNAMES in a raw 353 reply
-	void ForwardRaw353(const CString& sLine) const;
-	void ForwardRaw353(const CString& sLine, CClient* pClient) const;
-
 	// TODO move this function to CIRCNetwork and make it non-static?
 	static bool IsFloodProtected(double fRate);
+
 private:
+	// Message Handlers
+	bool OnAccountMessage(CMessage& Message);
+	bool OnActionMessage(CActionMessage& Message);
+	bool OnAwayMessage(CMessage& Message);
+	bool OnCapabilityMessage(CMessage& Message);
+	bool OnCTCPMessage(CCTCPMessage& Message);
+	bool OnErrorMessage(CMessage& Message);
+	bool OnInviteMessage(CMessage& Message);
+	bool OnJoinMessage(CJoinMessage& Message);
+	bool OnKickMessage(CKickMessage& Message);
+	bool OnModeMessage(CModeMessage& Message);
+	bool OnNickMessage(CNickMessage& Message);
+	bool OnNoticeMessage(CNoticeMessage& Message);
+	bool OnNumericMessage(CNumericMessage& Message);
+	bool OnPartMessage(CPartMessage& Message);
+	bool OnPingMessage(CMessage& Message);
+	bool OnPongMessage(CMessage& Message);
+	bool OnQuitMessage(CQuitMessage& Message);
+	bool OnTextMessage(CTextMessage& Message);
+	bool OnTopicMessage(CTopicMessage& Message);
+	bool OnWallopsMessage(CMessage& Message);
+	bool OnServerCapAvailable(const CString& sCap);
+	// !Message Handlers
+
 	void SetNick(const CString& sNick);
-	void ParseISupport(const CString& sLine);
+	void ParseISupport(const CMessage& Message);
 	// This is called when we connect and the nick we want is already taken
 	void SendAltNick(const CString& sBadNick);
 	void SendNextCap();
@@ -123,6 +141,10 @@ protected:
 	bool                                m_bAuthed;
 	bool                                m_bNamesx;
 	bool                                m_bUHNames;
+	bool                                m_bAwayNotify;
+	bool                                m_bAccountNotify;
+	bool                                m_bExtendedJoin;
+	bool                                m_bServerTime;
 	CString                             m_sPerms;
 	CString                             m_sPermModes;
 	std::set<unsigned char>             m_scUserModes;
@@ -149,4 +171,4 @@ protected:
 	friend class CIRCFloodTimer;
 };
 
-#endif // !_IRCSOCK_H
+#endif // !ZNC_IRCSOCK_H

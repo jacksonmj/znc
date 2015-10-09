@@ -37,7 +37,7 @@ public:
 
 private:
 protected:
-	virtual void RunJob() override;
+	void RunJob() override;
 
 	CAutoOpMod* m_pParent;
 };
@@ -63,8 +63,8 @@ public:
 	const CString& GetUserKey() const { return m_sUserKey; }
 
 	bool ChannelMatches(const CString& sChan) const {
-		for (set<CString>::const_iterator it = m_ssChans.begin(); it != m_ssChans.end(); ++it) {
-			if (sChan.AsLower().WildCmp(*it)) {
+		for (const CString& s : m_ssChans) {
+			if (sChan.AsLower().WildCmp(s, CString::CaseInsensitive)) {
 				return true;
 			}
 		}
@@ -73,8 +73,8 @@ public:
 	}
 
 	bool HostMatches(const CString& sHostmask) {
-		for (set<CString>::const_iterator it = m_ssHostmasks.begin(); it != m_ssHostmasks.end(); ++it) {
-			if (sHostmask.WildCmp(*it)) {
+		for (const CString& s : m_ssHostmasks) {
+			if (sHostmask.WildCmp(s, CString::CaseInsensitive)) {
 				return true;
 			}
 		}
@@ -93,8 +93,8 @@ public:
 		VCString vsHostmasks;
 		sHostmasks.Split(",", vsHostmasks);
 
-		for (unsigned int a = 0; a < vsHostmasks.size(); a++) {
-			m_ssHostmasks.erase(vsHostmasks[a]);
+		for (const CString& s : vsHostmasks) {
+			m_ssHostmasks.erase(s);
 		}
 
 		return m_ssHostmasks.empty();
@@ -104,8 +104,8 @@ public:
 		VCString vsHostmasks;
 		sHostmasks.Split(",", vsHostmasks);
 
-		for (unsigned int a = 0; a < vsHostmasks.size(); a++) {
-			m_ssHostmasks.insert(vsHostmasks[a]);
+		for (const CString& s : vsHostmasks) {
+			m_ssHostmasks.insert(s);
 		}
 	}
 
@@ -113,8 +113,8 @@ public:
 		VCString vsChans;
 		sChans.Split(" ", vsChans);
 
-		for (unsigned int a = 0; a < vsChans.size(); a++) {
-			m_ssChans.erase(vsChans[a].AsLower());
+		for (const CString& sChan : vsChans) {
+			m_ssChans.erase(sChan.AsLower());
 		}
 	}
 
@@ -122,8 +122,8 @@ public:
 		VCString vsChans;
 		sChans.Split(" ", vsChans);
 
-		for (unsigned int a = 0; a < vsChans.size(); a++) {
-			m_ssChans.insert(vsChans[a].AsLower());
+		for (const CString& sChan : vsChans) {
+			m_ssChans.insert(sChan.AsLower());
 		}
 	}
 
@@ -160,7 +160,7 @@ public:
 		AddCommand("DelUser", static_cast<CModCommand::ModCmdFunc>(&CAutoOpMod::OnDelUserCommand), "<user>", "Removes a user");
 	}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		AddTimer(new CAutoOpTimer(this));
 
 		// Load the users
@@ -179,20 +179,20 @@ public:
 	}
 
 	virtual ~CAutoOpMod() {
-		for (map<CString, CAutoOpUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
-			delete it->second;
+		for (const auto& it : m_msUsers) {
+			delete it.second;
 		}
 		m_msUsers.clear();
 	}
 
-	virtual void OnJoin(const CNick& Nick, CChan& Channel) override {
+	void OnJoin(const CNick& Nick, CChan& Channel) override {
 		// If we have ops in this chan
 		if (Channel.HasPerm(CChan::Op)) {
 			CheckAutoOp(Nick, Channel);
 		}
 	}
 
-	virtual void OnQuit(const CNick& Nick, const CString& sMessage, const vector<CChan*>& vChans) override {
+	void OnQuit(const CNick& Nick, const CString& sMessage, const vector<CChan*>& vChans) override {
 		MCString::iterator it = m_msQueue.find(Nick.GetNick().AsLower());
 
 		if (it != m_msQueue.end()) {
@@ -200,7 +200,7 @@ public:
 		}
 	}
 
-	virtual void OnNick(const CNick& OldNick, const CString& sNewNick, const vector<CChan*>& vChans) override {
+	void OnNick(const CNick& OldNick, const CString& sNewNick, const vector<CChan*>& vChans) override {
 		// Update the queue with nick changes
 		MCString::iterator it = m_msQueue.find(OldNick.GetNick().AsLower());
 
@@ -210,7 +210,7 @@ public:
 		}
 	}
 
-	virtual EModRet OnPrivNotice(CNick& Nick, CString& sMessage) override {
+	EModRet OnPrivNotice(CNick& Nick, CString& sMessage) override {
 		if (!sMessage.Token(0).Equals("!ZNCAO")) {
 			return CONTINUE;
 		}
@@ -226,13 +226,13 @@ public:
 		return HALTCORE;
 	}
 
-	virtual void OnOp2(const CNick* pOpNick, const CNick& Nick, CChan& Channel, bool bNoChange) override {
+	void OnOp2(const CNick* pOpNick, const CNick& Nick, CChan& Channel, bool bNoChange) override {
 		if (Nick.GetNick() == GetNetwork()->GetIRCNick().GetNick()) {
 			const map<CString,CNick>& msNicks = Channel.GetNicks();
 
-			for (map<CString,CNick>::const_iterator it = msNicks.begin(); it != msNicks.end(); ++it) {
-				if (!it->second.HasPerm(CChan::Op)) {
-					CheckAutoOp(it->second, Channel);
+			for (const auto& it : msNicks) {
+				if (!it.second.HasPerm(CChan::Op)) {
+					CheckAutoOp(it.second, Channel);
 				}
 			}
 		}
@@ -288,15 +288,15 @@ public:
 		Table.AddColumn("Key");
 		Table.AddColumn("Channels");
 
-		for (map<CString, CAutoOpUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
+		for (const auto& it : m_msUsers) {
 			VCString vsHostmasks;
-			it->second->GetHostmasks().Split(",", vsHostmasks);
+			it.second->GetHostmasks().Split(",", vsHostmasks);
 			for (unsigned int a = 0; a < vsHostmasks.size(); a++) {
 				Table.AddRow();
 				if (a == 0) {
-					Table.SetCell("User", it->second->GetUsername());
-					Table.SetCell("Key", it->second->GetUserKey());
-					Table.SetCell("Channels", it->second->GetChannels());
+					Table.SetCell("User", it.second->GetUsername());
+					Table.SetCell("Key", it.second->GetUserKey());
+					Table.SetCell("Channels", it.second->GetChannels());
 				} else if (a == vsHostmasks.size()-1) {
 					Table.SetCell("User", "`-");
 				} else {
@@ -401,19 +401,19 @@ public:
 	CAutoOpUser* FindUser(const CString& sUser) {
 		map<CString, CAutoOpUser*>::iterator it = m_msUsers.find(sUser.AsLower());
 
-		return (it != m_msUsers.end()) ? it->second : NULL;
+		return (it != m_msUsers.end()) ? it->second : nullptr;
 	}
 
 	CAutoOpUser* FindUserByHost(const CString& sHostmask, const CString& sChannel = "") {
-		for (map<CString, CAutoOpUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
-			CAutoOpUser* pUser = it->second;
+		for (const auto& it : m_msUsers) {
+			CAutoOpUser* pUser = it.second;
 
 			if (pUser->HostMatches(sHostmask) && (sChannel.empty() || pUser->ChannelMatches(sChannel))) {
 				return pUser;
 			}
 		}
 
-		return NULL;
+		return nullptr;
 	}
 
 	bool CheckAutoOp(const CNick& Nick, CChan& Channel) {
@@ -452,7 +452,7 @@ public:
 	CAutoOpUser* AddUser(const CString& sUser, const CString& sKey, const CString& sHosts, const CString& sChans) {
 		if (m_msUsers.find(sUser) != m_msUsers.end()) {
 			PutModule("That user already exists");
-			return NULL;
+			return nullptr;
 		}
 
 		CAutoOpUser* pUser = new CAutoOpUser(sUser, sKey, sHosts, sChans);
@@ -465,10 +465,10 @@ public:
 		// Validate before responding - don't blindly trust everyone
 		bool bValid = false;
 		bool bMatchedHost = false;
-		CAutoOpUser* pUser = NULL;
+		CAutoOpUser* pUser = nullptr;
 
-		for (map<CString, CAutoOpUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
-			pUser = it->second;
+		for (const auto& it : m_msUsers) {
+			pUser = it.second;
 
 			// First verify that the person who challenged us matches a user's host
 			if (pUser->HostMatches(Nick.GetHostMask())) {
@@ -476,13 +476,11 @@ public:
 				bMatchedHost = true;
 
 				// Also verify that they are opped in at least one of the user's chans
-				for (size_t a = 0; a < Chans.size(); a++) {
-					const CChan& Chan = *Chans[a];
-
-					const CNick* pNick = Chan.FindNick(Nick.GetNick());
+				for (CChan* pChan : Chans) {
+					const CNick* pNick = pChan->FindNick(Nick.GetNick());
 
 					if (pNick) {
-						if (pNick->HasPerm(CChan::Op) && pUser->ChannelMatches(Chan.GetName())) {
+						if (pNick->HasPerm(CChan::Op) && pUser->ChannelMatches(pChan->GetName())) {
 							bValid = true;
 							break;
 						}
@@ -526,10 +524,10 @@ public:
 		CString sChallenge = itQueue->second;
 		m_msQueue.erase(itQueue);
 
-		for (map<CString, CAutoOpUser*>::iterator it = m_msUsers.begin(); it != m_msUsers.end(); ++it) {
-			if (it->second->HostMatches(Nick.GetHostMask())) {
-				if (sResponse == CString(it->second->GetUserKey() + "::" + sChallenge).MD5()) {
-					OpUser(Nick, *it->second);
+		for (const auto& it : m_msUsers) {
+			if (it.second->HostMatches(Nick.GetHostMask())) {
+				if (sResponse == CString(it.second->GetUserKey() + "::" + sChallenge).MD5()) {
+					OpUser(Nick, *it.second);
 					return true;
 				} else {
 					PutModule("WARNING! [" + Nick.GetHostMask() + "] sent a bad response.  Please verify that you have their correct password.");
@@ -560,23 +558,21 @@ public:
 		}
 
 		// Now issue challenges for the new users in the queue
-		for (MCString::iterator it = m_msQueue.begin(); it != m_msQueue.end(); ++it) {
-			it->second = CString::RandomString(AUTOOP_CHALLENGE_LENGTH);
-			PutIRC("NOTICE " + it->first + " :!ZNCAO CHALLENGE " + it->second);
+		for (auto& it : m_msQueue) {
+			it.second = CString::RandomString(AUTOOP_CHALLENGE_LENGTH);
+			PutIRC("NOTICE " + it.first + " :!ZNCAO CHALLENGE " + it.second);
 		}
 	}
 
 	void OpUser(const CNick& Nick, const CAutoOpUser& User) {
 		const vector<CChan*>& Chans = GetNetwork()->GetChans();
 
-		for (size_t a = 0; a < Chans.size(); a++) {
-			const CChan& Chan = *Chans[a];
-
-			if (Chan.HasPerm(CChan::Op) && User.ChannelMatches(Chan.GetName())) {
-				const CNick* pNick = Chan.FindNick(Nick.GetNick());
+		for (CChan* pChan : Chans) {
+			if (pChan->HasPerm(CChan::Op) && User.ChannelMatches(pChan->GetName())) {
+				const CNick* pNick = pChan->FindNick(Nick.GetNick());
 
 				if (pNick && !pNick->HasPerm(CChan::Op)) {
-					PutIRC("MODE " + Chan.GetName() + " +o " + Nick.GetNick());
+					PutIRC("MODE " + pChan->GetName() + " +o " + Nick.GetNick());
 				}
 			}
 		}

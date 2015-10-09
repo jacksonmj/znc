@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef _IRCNETWORK_H
-#define _IRCNETWORK_H
+#ifndef ZNC_IRCNETWORK_H
+#define ZNC_IRCNETWORK_H
 
 #include <znc/zncconfig.h>
 #include <znc/ZNCString.h>
@@ -35,6 +35,7 @@ class CServer;
 class CIRCSock;
 class CIRCNetworkPingTimer;
 class CIRCNetworkJoinTimer;
+class CMessage;
 
 class CIRCNetwork {
 public:
@@ -44,16 +45,19 @@ public:
 	CIRCNetwork(CUser *pUser, const CIRCNetwork& Network);
 	~CIRCNetwork();
 
+	CIRCNetwork(const CIRCNetwork&) = delete;
+	CIRCNetwork& operator=(const CIRCNetwork&) = delete;
+
 	enum {
 		JOIN_FREQUENCY = 30,
 		/** How long must an IRC connection be idle before ZNC sends a ping */
-		PING_FREQUENCY = 270,
+		PING_FREQUENCY = 120,
 		/** Time between checks if PINGs need to be sent */
 		PING_SLACK = 30,
 		/** Timeout after which IRC connections are closed. Must
 		 *  obviously be greater than PING_FREQUENCY + PING_SLACK.
 		 */
-		NO_TRAFFIC_TIMEOUT = 540
+		NO_TRAFFIC_TIMEOUT = 180
 	};
 
 	void Clone(const CIRCNetwork& Network, bool bCloneName = true);
@@ -86,9 +90,10 @@ public:
 	const CModules& GetModules() const { return *m_pModules; }
 	// !Modules
 
-	bool PutUser(const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutStatus(const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
-	bool PutModule(const CString& sModule, const CString& sLine, CClient* pClient = NULL, CClient* pSkipClient = NULL);
+	bool PutUser(const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutUser(const CMessage& Message, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutStatus(const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
+	bool PutModule(const CString& sModule, const CString& sLine, CClient* pClient = nullptr, CClient* pSkipClient = nullptr);
 
 	const std::vector<CChan*>& GetChans() const;
 	CChan* FindChan(CString sName) const;
@@ -124,6 +129,7 @@ public:
 	const SCString& GetTrustedFingerprints() const { return m_ssTrustedFingerprints; }
 	void AddTrustedFingerprint(const CString& sFP) { m_ssTrustedFingerprints.insert(sFP.Escape_n(CString::EHEXCOLON, CString::EHEXCOLON)); }
 	void DelTrustedFingerprint(const CString& sFP) { m_ssTrustedFingerprints.erase(sFP); }
+	void ClearTrustedFingerprints() { m_ssTrustedFingerprints.clear(); }
 
 	void SetIRCConnectEnabled(bool b);
 	bool GetIRCConnectEnabled() const { return m_bIRCConnectEnabled; }
@@ -149,25 +155,44 @@ public:
 	bool PutIRC(const CString& sLine);
 
 	// Buffers
-	void AddRawBuffer(const CString& sFormat, const CString& sText = "") { m_RawBuffer.AddLine(sFormat, sText); }
-	void UpdateRawBuffer(const CString& sMatch, const CString& sFormat, const CString& sText = "") { m_RawBuffer.UpdateLine(sMatch, sFormat, sText); }
-	void UpdateExactRawBuffer(const CString& sFormat, const CString& sText = "") { m_RawBuffer.UpdateExactLine(sFormat, sText); }
+	void AddRawBuffer(const CMessage& Format, const CString& sText = "") { m_RawBuffer.AddLine(Format, sText); }
+	void UpdateRawBuffer(const CString& sCommand, const CMessage& Format, const CString& sText = "") { m_RawBuffer.UpdateLine(sCommand, Format, sText); }
+	void UpdateExactRawBuffer(const CMessage& Format, const CString& sText = "") { m_RawBuffer.UpdateExactLine(Format, sText); }
 	void ClearRawBuffer() { m_RawBuffer.Clear(); }
 
-	void AddMotdBuffer(const CString& sFormat, const CString& sText = "") { m_MotdBuffer.AddLine(sFormat, sText); }
-	void UpdateMotdBuffer(const CString& sMatch, const CString& sFormat, const CString& sText = "") { m_MotdBuffer.UpdateLine(sMatch, sFormat, sText); }
+	/// @deprecated
+	void AddRawBuffer(const CString& sFormat, const CString& sText = "") { m_RawBuffer.AddLine(sFormat, sText); }
+	/// @deprecated
+	void UpdateRawBuffer(const CString& sMatch, const CString& sFormat, const CString& sText = "") { m_RawBuffer.UpdateLine(sMatch, sFormat, sText); }
+	/// @deprecated
+	void UpdateExactRawBuffer(const CString& sFormat, const CString& sText = "") { m_RawBuffer.UpdateExactLine(sFormat, sText); }
+
+	void AddMotdBuffer(const CMessage& Format, const CString& sText = "") { m_MotdBuffer.AddLine(Format, sText); }
+	void UpdateMotdBuffer(const CString& sCommand, const CMessage& Format, const CString& sText = "") { m_MotdBuffer.UpdateLine(sCommand, Format, sText); }
 	void ClearMotdBuffer() { m_MotdBuffer.Clear(); }
 
-	void AddNoticeBuffer(const CString& sFormat, const CString& sText = "") { m_NoticeBuffer.AddLine(sFormat, sText); }
-	void UpdateNoticeBuffer(const CString& sMatch, const CString& sFormat, const CString& sText = "") { m_NoticeBuffer.UpdateLine(sMatch, sFormat, sText); }
+	/// @deprecated
+	void AddMotdBuffer(const CString& sFormat, const CString& sText = "") { m_MotdBuffer.AddLine(sFormat, sText); }
+	/// @deprecated
+	void UpdateMotdBuffer(const CString& sMatch, const CString& sFormat, const CString& sText = "") { m_MotdBuffer.UpdateLine(sMatch, sFormat, sText); }
+
+	void AddNoticeBuffer(const CMessage& Format, const CString& sText = "") { m_NoticeBuffer.AddLine(Format, sText); }
+	void UpdateNoticeBuffer(const CString& sCommand, const CMessage& Format, const CString& sText = "") { m_NoticeBuffer.UpdateLine(sCommand, Format, sText); }
 	void ClearNoticeBuffer() { m_NoticeBuffer.Clear(); }
+
+	/// @deprecated
+	void AddNoticeBuffer(const CString& sFormat, const CString& sText = "") { m_NoticeBuffer.AddLine(sFormat, sText); }
+	/// @deprecated
+	void UpdateNoticeBuffer(const CString& sMatch, const CString& sFormat, const CString& sText = "") { m_NoticeBuffer.UpdateLine(sMatch, sFormat, sText); }
+
+	void ClearQueryBuffer();
 	// !Buffers
 
 	// la
 	const CString& GetNick(const bool bAllowDefault = true) const;
 	const CString& GetAltNick(const bool bAllowDefault = true) const;
 	const CString& GetIdent(const bool bAllowDefault = true) const;
-	const CString& GetRealName() const;
+	CString GetRealName() const;
 	const CString& GetBindHost() const;
 	const CString& GetEncoding() const;
 	CString GetQuitMsg() const;
@@ -187,6 +212,12 @@ public:
 
 	unsigned short int GetJoinDelay() const { return m_uJoinDelay; }
 	void SetJoinDelay(unsigned short int uJoinDelay) { m_uJoinDelay = uJoinDelay; }
+
+	unsigned long long BytesRead() const { return m_uBytesRead; }
+	unsigned long long BytesWritten() const { return m_uBytesWritten; }
+
+	void AddBytesRead(unsigned long long u) { m_uBytesRead += u; }
+	void AddBytesWritten(unsigned long long u) { m_uBytesWritten += u; }
 
 	CString ExpandString(const CString& sStr) const;
 	CString& ExpandString(const CString& sStr, CString& sRet) const;
@@ -237,6 +268,8 @@ protected:
 	CIRCNetworkJoinTimer* m_pJoinTimer;
 
 	unsigned short int m_uJoinDelay;
+	unsigned long long m_uBytesRead;
+	unsigned long long m_uBytesWritten;
 };
 
-#endif // !_IRCNETWORK_H
+#endif // !ZNC_IRCNETWORK_H

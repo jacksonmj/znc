@@ -16,6 +16,7 @@
 
 #include <znc/User.h>
 #include <znc/znc.h>
+#include <time.h>
 
 using std::map;
 using std::pair;
@@ -28,7 +29,7 @@ private:
 	}
 
 	void SetTime(const CUser *pUser) {
-		SetNV(pUser->GetUserName(), CString(time(NULL)));
+		SetNV(pUser->GetUserName(), CString(time(nullptr)));
 	}
 
 	const CString FormatLastSeen(const CUser *pUser, const char* sDefault = "") {
@@ -70,35 +71,35 @@ private:
 public:
 	MODCONSTRUCTOR(CLastSeenMod) {
 		AddHelpCommand();
-		AddCommand("Show", static_cast<CModCommand::ModCmdFunc>(&CLastSeenMod::ShowCommand));
+		AddCommand("Show", static_cast<CModCommand::ModCmdFunc>(&CLastSeenMod::ShowCommand),"", "Shows list of users and when they last logged in");
 	}
 
 	virtual ~CLastSeenMod() {}
 
 	// Event stuff:
 
-	virtual void OnClientLogin() override {
+	void OnClientLogin() override {
 		SetTime(GetUser());
 	}
 
-	virtual void OnClientDisconnect() override {
+	void OnClientDisconnect() override {
 		SetTime(GetUser());
 	}
 
-	virtual EModRet OnDeleteUser(CUser& User) override {
+	EModRet OnDeleteUser(CUser& User) override {
 		DelNV(User.GetUserName());
 		return CONTINUE;
 	}
 
 	// Web stuff:
 
-	virtual bool WebRequiresAdmin() override { return true; }
-	virtual CString GetWebMenuTitle() override { return "Last Seen"; }
+	bool WebRequiresAdmin() override { return true; }
+	CString GetWebMenuTitle() override { return "Last Seen"; }
 
-	virtual bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		if (sPageName == "index") {
 			CModules& GModules = CZNC::Get().GetModules();
-			Tmpl["WebAdminLoaded"] = CString(GModules.FindModule("webadmin") != NULL);
+			Tmpl["WebAdminLoaded"] = CString(GModules.FindModule("webadmin") != nullptr);
 
 			MTimeMulti mmSorted;
 			const MUsers& mUsers = CZNC::Get().GetUserMap();
@@ -122,7 +123,7 @@ public:
 		return false;
 	}
 
-	virtual bool OnEmbeddedWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnEmbeddedWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		if (sPageName == "webadmin/user" && WebSock.GetSession()->IsAdmin()) {
 			CUser* pUser = CZNC::Get().FindUser(Tmpl["Username"]);
 			if (pUser) {

@@ -51,14 +51,14 @@ class CPerform : public CModule {
 		Table.AddColumn("Perform");
 		Table.AddColumn("Expanded");
 
-		for (VCString::const_iterator it = m_vPerform.begin(); it != m_vPerform.end(); ++it, index++) {
+		for (const CString& sPerf : m_vPerform) {
 			Table.AddRow();
-			Table.SetCell("Id", CString(index));
-			Table.SetCell("Perform", *it);
+			Table.SetCell("Id", CString(index++));
+			Table.SetCell("Perform", sPerf);
 
-			CString sExpanded = ExpandString(*it);
+			CString sExpanded = ExpandString(sPerf);
 
-			if (sExpanded != *it) {
+			if (sExpanded != sPerf) {
 				Table.SetCell("Expanded", sExpanded);
 			}
 		}
@@ -92,11 +92,11 @@ public:
 		AddCommand("Add",     static_cast<CModCommand::ModCmdFunc>(&CPerform::Add),
 			"<command>");
 		AddCommand("Del",     static_cast<CModCommand::ModCmdFunc>(&CPerform::Del),
-			"<nr>");
+			"<number>");
 		AddCommand("List",    static_cast<CModCommand::ModCmdFunc>(&CPerform::List));
 		AddCommand("Execute", static_cast<CModCommand::ModCmdFunc>(&CPerform::Execute));
 		AddCommand("Swap",    static_cast<CModCommand::ModCmdFunc>(&CPerform::Swap),
-			"<nr> <nr>");
+			"<number> <number>");
 	}
 
 	virtual ~CPerform() {}
@@ -121,21 +121,21 @@ public:
 		return sPerf;
 	}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		GetNV("Perform").Split("\n", m_vPerform, false);
 
 		return true;
 	}
 
-	virtual void OnIRCConnected() override {
-		for (VCString::const_iterator it = m_vPerform.begin(); it != m_vPerform.end(); ++it) {
-			PutIRC(ExpandString(*it));
+	void OnIRCConnected() override {
+		for (const CString& sPerf : m_vPerform) {
+			PutIRC(ExpandString(sPerf));
 		}
 	}
 
-	virtual CString GetWebMenuTitle() override { return "Perform"; }
+	CString GetWebMenuTitle() override { return "Perform"; }
 
-	virtual bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
+	bool OnWebRequest(CWebSock& WebSock, const CString& sPageName, CTemplate& Tmpl) override {
 		if (sPageName != "index") {
 			// only accept requests to index
 			return false;
@@ -146,15 +146,15 @@ public:
 			WebSock.GetRawParam("perform", true).Split("\n", vsPerf, false);
 			m_vPerform.clear();
 
-			for (VCString::const_iterator it = vsPerf.begin(); it != vsPerf.end(); ++it)
-				m_vPerform.push_back(ParsePerform(*it));
+			for (const CString& sPerf : vsPerf)
+				m_vPerform.push_back(ParsePerform(sPerf));
 
 			Save();
 		}
 
-		for (VCString::const_iterator it = m_vPerform.begin(); it != m_vPerform.end(); ++it) {
+		for (const CString& sPerf : m_vPerform) {
 			CTemplate& Row = Tmpl.AddRow("PerformLoop");
-			Row["Perform"] = *it;
+			Row["Perform"] = sPerf;
 		}
 
 		return true;
@@ -164,8 +164,8 @@ private:
 	void Save() {
 		CString sBuffer = "";
 
-		for (VCString::const_iterator it = m_vPerform.begin(); it != m_vPerform.end(); ++it) {
-			sBuffer += *it + "\n";
+		for (const CString& sPerf : m_vPerform) {
+			sBuffer += sPerf + "\n";
 		}
 		SetNV("Perform", sBuffer);
 	}

@@ -111,7 +111,7 @@ sub LoadModule {
 	$modrefcount{$modname}++;
 	$datapath = $datapath->GetPerlStr;
 	$datapath =~ s/\.pm$//;
-	my $cmod = ZNC::CPerlModule->new($user, $network, $modname, $datapath, $pmod);
+	my $cmod = ZNC::CPerlModule->new($user, $network, $modname, $datapath, $type, $pmod);
 	my %nv;
 	tie %nv, 'ZNC::ModuleNV', $cmod;
 	$pmod->{_cmod} = $cmod;
@@ -119,7 +119,6 @@ sub LoadModule {
 	$cmod->SetDescription($pmod->description);
 	$cmod->SetArgs($args);
 	$cmod->SetModPath($modpath);
-	$cmod->SetType($type);
 	push @allmods, $pmod;
 	$container->push_back($cmod);
 	my $x = '';
@@ -356,6 +355,7 @@ sub OnUserJoin {}
 sub OnUserPart {}
 sub OnUserTopic {}
 sub OnUserTopicRequest {}
+sub OnUserQuit {}
 sub OnCTCPReply {}
 sub OnPrivCTCP {}
 sub OnChanCTCP {}

@@ -24,6 +24,7 @@
 #include <vector>
 #include <sstream>
 #include <sys/types.h>
+#include <initializer_list>
 
 #define _SQL(s) CString("'" + CString(s).Escape_n(CString::ESQL) + "'")
 #define _URL(s) CString(s).Escape_n(CString::EURL)
@@ -104,6 +105,7 @@ public:
 	CString(const char* c, size_t l) : std::string(c, l) {}
 	CString(const std::string& s) : std::string(s) {}
 	CString(size_t n, char c) : std::string(n, c) {}
+	CString(std::initializer_list<char> list) : std::string(list) {}
 	~CString() {}
 	
 	/**
@@ -169,20 +171,26 @@ public:
 	 */
 	bool Equals(const CString& s, bool bCaseSensitive, CString::size_type uLen = CString::npos) const;
 	/**
-	 * Do a wildcard comparision between two strings.
+	 * Do a wildcard comparison between two strings.
 	 * For example, the following returns true:
 	 * <code>WildCmp("*!?bar@foo", "I_am!~bar@foo");</code>
 	 * @param sWild The wildcards used for the comparison.
 	 * @param sString The string that is used for comparing.
+	 * @param cs CaseSensitive (default) if you want the comparison
+	 *           to be case sensitive, CaseInsensitive otherwise.
+	 * @todo Make cs CaseInsensitive by default.
 	 * @return true if the wildcard matches.
 	 */
-	static bool WildCmp(const CString& sWild, const CString& sString);
+	static bool WildCmp(const CString& sWild, const CString& sString, CaseSensitivity cs = CaseSensitive);
 	/**
 	 * Do a wild compare on this string.
 	 * @param sWild The wildcards used to for the comparison.
+	 * @param cs CaseSensitive (default) if you want the comparison
+	 *           to be case sensitive, CaseInsensitive otherwise.
+	 * @todo Make cs CaseInsensitive by default.
 	 * @return The result of <code>this->WildCmp(sWild, *this);</code>.
 	 */
-	bool WildCmp(const CString& sWild) const;
+	bool WildCmp(const CString& sWild, CaseSensitivity cs = CaseSensitive) const;
 
 	/**
 	 * Turn all characters in this string into their upper-case equivalent.
@@ -558,11 +566,12 @@ public:
 
 private:
 protected:
-	unsigned char* strnchr(const unsigned char* src, unsigned char c, unsigned int iMaxBytes, unsigned char* pFill = NULL, unsigned int* piCount = NULL) const;
+	unsigned char* strnchr(const unsigned char* src, unsigned char c, unsigned int iMaxBytes, unsigned char* pFill = nullptr, unsigned int* piCount = nullptr) const;
 };
 
 /**
  * @brief A dictionary for strings.
+ * @todo Replace with "using MCString = std::map<CString, CString>;" in ZNC 2.0
  *
  * This class maps strings to other strings.
  */
@@ -570,6 +579,8 @@ class MCString : public std::map<CString, CString> {
 public:
 	/** Construct an empty MCString. */
 	MCString() : std::map<CString, CString>() {}
+	/** Construct a MCString using an initializer list eg. MCString m = { {"key1", "val1"}, {"key2", "val2"} }; */
+	MCString(std::initializer_list<std::pair<const CString, CString>> list) : std::map<CString, CString>(list) {}
 	/** Destruct this MCString. */
 	virtual ~MCString() { clear(); }
 

@@ -31,13 +31,13 @@ public:
 
 	virtual ~CAutoCycleMod() {}
 
-	virtual bool OnLoad(const CString& sArgs, CString& sMessage) override {
+	bool OnLoad(const CString& sArgs, CString& sMessage) override {
 		VCString vsChans;
 		sArgs.Split(" ", vsChans, false);
 
-		for (VCString::const_iterator it = vsChans.begin(); it != vsChans.end(); ++it) {
-			if (!Add(*it)) {
-				PutModule("Unable to add [" + *it + "]");
+		for (const CString& sChan : vsChans) {
+			if (!Add(sChan)) {
+				PutModule("Unable to add [" + sChan + "]");
 			}
 		}
 
@@ -79,14 +79,14 @@ public:
 		CTable Table;
 		Table.AddColumn("Chan");
 
-		for (unsigned int a = 0; a < m_vsChans.size(); a++) {
+		for (const CString& sChan : m_vsChans) {
 			Table.AddRow();
-			Table.SetCell("Chan", m_vsChans[a]);
+			Table.SetCell("Chan", sChan);
 		}
 
-		for (unsigned int b = 0; b < m_vsNegChans.size(); b++) {
+		for (const CString& sChan : m_vsNegChans) {
 			Table.AddRow();
-			Table.SetCell("Chan", "!" + m_vsNegChans[b]);
+			Table.SetCell("Chan", "!" + sChan);
 		}
 
 		if (Table.size()) {
@@ -96,16 +96,16 @@ public:
 		}
 	}
 
-	virtual void OnPart(const CNick& Nick, CChan& Channel, const CString& sMessage) override {
+	void OnPart(const CNick& Nick, CChan& Channel, const CString& sMessage) override {
 		AutoCycle(Channel);
 	}
 
-	virtual void OnQuit(const CNick& Nick, const CString& sMessage, const vector<CChan*>& vChans) override {
-		for (unsigned int i = 0; i < vChans.size(); i++)
-			AutoCycle(*vChans[i]);
+	void OnQuit(const CNick& Nick, const CString& sMessage, const vector<CChan*>& vChans) override {
+		for (CChan* pChan : vChans)
+			AutoCycle(*pChan);
 	}
 
-	virtual void OnKick(const CNick& Nick, const CString& sOpNick, CChan& Channel, const CString& sMessage) override {
+	void OnKick(const CNick& Nick, const CString& sOpNick, CChan& Channel, const CString& sMessage) override {
 		AutoCycle(Channel);
 	}
 
@@ -131,18 +131,15 @@ protected:
 	}
 
 	bool AlreadyAdded(const CString& sInput) {
-		vector<CString>::iterator it;
-
-		if (sInput.Left(1) == "!") {
-			CString sChan = sInput.substr(1);
-			for (it = m_vsNegChans.begin(); it != m_vsNegChans.end();
-					++it) {
-				if (*it == sChan)
+		CString sChan = sInput;
+		if (sChan.TrimPrefix("!")) {
+			for (const CString& s : m_vsNegChans) {
+				if (s.Equals(sChan))
 					return true;
 			}
 		} else {
-			for (it = m_vsChans.begin(); it != m_vsChans.end(); ++it) {
-				if (*it == sInput)
+			for (const CString& s : m_vsChans) {
+				if (s.Equals(sChan))
 					return true;
 			}
 		}
@@ -205,14 +202,14 @@ protected:
 	}
 
 	bool IsAutoCycle(const CString& sChan) {
-		for (unsigned int a = 0; a < m_vsNegChans.size(); a++) {
-			if (sChan.WildCmp(m_vsNegChans[a])) {
+		for (const CString& s : m_vsNegChans) {
+			if (sChan.WildCmp(s, CString::CaseInsensitive)) {
 				return false;
 			}
 		}
 
-		for (unsigned int b = 0; b < m_vsChans.size(); b++) {
-			if (sChan.WildCmp(m_vsChans[b])) {
+		for (const CString& s : m_vsChans) {
+			if (sChan.WildCmp(s, CString::CaseInsensitive)) {
 				return true;
 			}
 		}

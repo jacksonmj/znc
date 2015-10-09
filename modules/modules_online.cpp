@@ -25,7 +25,7 @@ public:
 
 	bool IsOnlineModNick(const CString& sNick) {
 		const CString& sPrefix = GetUser()->GetStatusPrefix();
-		if (!sNick.Equals(sPrefix, false, sPrefix.length()))
+		if (!sNick.StartsWith(sPrefix))
 			return false;
 
 		CString sModNick = sNick.substr(sPrefix.length());
@@ -37,19 +37,18 @@ public:
 		return false;
 	}
 
-	virtual EModRet OnUserRaw(CString& sLine) override {
+	EModRet OnUserRaw(CString& sLine) override {
 		//Handle ISON
 		if (sLine.Token(0).Equals("ison")) {
 			VCString vsNicks;
-			VCString::const_iterator it;
 
 			// Get the list of nicks which are being asked for
 			sLine.Token(1, true).TrimLeft_n(":").Split(" ", vsNicks, false);
 
 			CString sBNCNicks;
-			for (it = vsNicks.begin(); it != vsNicks.end(); ++it) {
-				if (IsOnlineModNick(*it)) {
-					sBNCNicks += " " + *it;
+			for (const CString& sNick : vsNicks) {
+				if (IsOnlineModNick(sNick)) {
+					sBNCNicks += " " + sNick;
 				}
 			}
 			// Remove the leading space
@@ -72,7 +71,7 @@ public:
 
 			if (IsOnlineModNick(sNick)) {
 				CIRCNetwork* pNetwork = GetNetwork();
-				PutUser(":znc.in 311 " + pNetwork->GetCurNick() + " " + sNick + " " + sNick + " znc.in * :" + sNick);
+				PutUser(":znc.in 311 " + pNetwork->GetCurNick() + " " + sNick + " znc znc.in * :" + sNick);
 				PutUser(":znc.in 312 " + pNetwork->GetCurNick() + " " + sNick + " *.znc.in :Bouncer");
 				PutUser(":znc.in 318 " + pNetwork->GetCurNick() + " " + sNick + " :End of /WHOIS list.");
 
@@ -83,7 +82,7 @@ public:
 		return CONTINUE;
 	}
 
-	virtual EModRet OnRaw(CString& sLine) override {
+	EModRet OnRaw(CString& sLine) override {
 		//Handle 303 reply if m_Requests is not empty
 		if (sLine.Token(1) == "303" && !m_ISONRequests.empty()) {
 			VCString::iterator it = m_ISONRequests.begin();
