@@ -623,6 +623,7 @@ public:
 				Tmpl["Edit"] = "true";
 				Tmpl["Title"] = "Edit Channel" + CString(" [" + pChan->GetName() + "]") + " of Network [" + pNetwork->GetName() + "] of User [" + pNetwork->GetUser()->GetUserName() + "]";
 				Tmpl["ChanName"] = pChan->GetName();
+				Tmpl["SortOrder"] = CString(pChan->GetSortOrder());
 				Tmpl["BufferSize"] = CString(pChan->GetBufferCount());
 				Tmpl["DefModes"] = pChan->GetDefaultModes();
 				Tmpl["Key"] = pChan->GetKey();
@@ -634,6 +635,7 @@ public:
 			} else {
 				Tmpl["Action"] = "addchan";
 				Tmpl["Title"] = "Add Channel" + CString(" for User [" + pUser->GetUserName() + "]");
+				Tmpl["SortOrder"] = CString(CChan::m_uDefaultSortOrder);
 				Tmpl["BufferSize"] = CString(pUser->GetBufferCount());
 				Tmpl["DefModes"] = CString(pUser->GetDefaultChanModes());
 				Tmpl["InConfig"] = "true";
@@ -701,6 +703,12 @@ public:
 			if (pChan->GetBufferCount() != uBufferSize) {
 				pChan->SetBufferCount(uBufferSize, spSession->IsAdmin());
 			}
+		}
+		if (WebSock.GetParam("sortorder").empty()) {
+			pChan->SetSortOrder(0);
+		} else {
+			unsigned int uSortOrder = WebSock.GetParam("sortorder").ToUInt();
+			pChan->SetSortOrder(uSortOrder);
 		}
 		pChan->SetDefaultModes(WebSock.GetParam("defmodes"));
 		pChan->SetInConfig(WebSock.GetParam("save").ToBool());
@@ -834,6 +842,7 @@ public:
 					l["Network"] = pNetwork->GetName();
 					l["Username"] = pUser->GetUserName();
 					l["Name"] = pChan->GetName();
+					l["SortOrder"] = CString(pChan->GetSortOrder());
 					l["Perms"] = pChan->GetPermStr();
 					l["CurModes"] = pChan->GetModeString();
 					l["DefModes"] = pChan->GetDefaultModes();

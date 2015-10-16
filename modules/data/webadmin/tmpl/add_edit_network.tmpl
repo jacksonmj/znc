@@ -160,6 +160,7 @@
 				<? IF ChannelLoop ?>
 						<td>Save</td>
 						<td>Name</td>
+						<td>SortOrder</td>
 						<td>CurModes</td>
 						<td>DefModes</td>
 						<td>BufferSize</td>
@@ -171,7 +172,7 @@
 					</thead>
 
 					<tbody>
-			<? LOOP ChannelLoop SORTASC=Name ?>
+			<? LOOP ChannelLoop ?>
 					<tr class="<? IF __EVEN__ ?>evenrow<? ELSE ?>oddrow<? ENDIF ?>">
 						<td>
 							<input type="hidden" name="channel" value="<? VAR Name ?>" />
@@ -179,6 +180,7 @@
 						</td>
 						<td><input type="checkbox" name="save_<? VAR Name ?>"<? IF InConfig ?> checked="checked"<? ENDIF ?> /></td>
 						<td><? VAR Name ?></td>
+						<td><? VAR SortOrder ?></td>
 						<td><? VAR CurModes ?></td>
 						<td><? VAR DefModes ?></td>
 						<td><? VAR BufferSize ?></td>
